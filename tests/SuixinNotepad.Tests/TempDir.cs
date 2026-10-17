@@ -8,7 +8,7 @@ namespace SuixinNotepad.Tests
     {
         public TempDir()
         {
-            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "SuixinNotepadTests", Guid.NewGuid().ToString("N"));
+            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "SuixinNotepadTests-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(Path);
         }
 
