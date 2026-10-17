@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{749FCACE-2A9B-4B5F-B1F3-9B95587BC63D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SuixinNotepad", "src\SuixinNotepad\SuixinNotepad.csproj", "{329FC2C9-602C-4039-A824-E4D8B61E00A3}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{D30142BF-741C-4B3A-BD4E-EA9260F0A913}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SuixinNotepad.Tests", "tests\SuixinNotepad.Tests\SuixinNotepad.Tests.csproj", "{12535F57-9BE5-4B12-AA49-4C4F8C0E3E0F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{329FC2C9-602C-4039-A824-E4D8B61E00A3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{329FC2C9-602C-4039-A824-E4D8B61E00A3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{329FC2C9-602C-4039-A824-E4D8B61E00A3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{329FC2C9-602C-4039-A824-E4D8B61E00A3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{12535F57-9BE5-4B12-AA49-4C4F8C0E3E0F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{12535F57-9BE5-4B12-AA49-4C4F8C0E3E0F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{12535F57-9BE5-4B12-AA49-4C4F8C0E3E0F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{12535F57-9BE5-4B12-AA49-4C4F8C0E3E0F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{329FC2C9-602C-4039-A824-E4D8B61E00A3} = {749FCACE-2A9B-4B5F-B1F3-9B95587BC63D}
+		{12535F57-9BE5-4B12-AA49-4C4F8C0E3E0F} = {D30142BF-741C-4B3A-BD4E-EA9260F0A913}
+	EndGlobalSection
+EndGlobal

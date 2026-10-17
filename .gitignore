@@ -1,0 +1,14 @@
+# 编译与发布产物
+bin/
+obj/
+build/
+dist/
+TestResults/
+# 构建工具（由 build.ps1 自动下载）
+tools/
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
