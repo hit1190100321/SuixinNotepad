@@ -24,5 +24,12 @@ namespace SuixinNotepad.Core
 
         [DataMember] public int SelectionStart { get; set; }
         [DataMember] public int SelectionLength { get; set; }
+
+        /// <summary>用户选定的编码名称；为空时载入文件自动识别编码。</summary>
+        [DataMember] public string Encoding { get; set; } = "";
+
+        /// <summary>反序列化不调用构造函数，旧版本会话文件缺少的字段由此获得默认值。</summary>
+        [OnDeserializing]
+        private void OnDeserializing(StreamingContext context) => Encoding = "";
     }
 }

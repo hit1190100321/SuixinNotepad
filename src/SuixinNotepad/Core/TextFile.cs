@@ -4,16 +4,6 @@ using System.Text;
 
 namespace SuixinNotepad.Core
 {
-    /// <summary>文件编码，与 Windows 记事本可选编码一致。</summary>
-    internal enum FileEncoding
-    {
-        Utf8,
-        Utf8Bom,
-        Utf16LE,
-        Utf16BE,
-        Ansi,
-    }
-
     internal enum LineEnding
     {
         CrLf,
@@ -49,42 +39,36 @@ namespace SuixinNotepad.Core
     /// <summary>解码后的文本。Text 中的换行统一为 '\n'。</summary>
     internal sealed class DecodedText
     {
-        public DecodedText(string text, FileEncoding encoding, LineEnding lineEnding)
+        public DecodedText(string text, TextEncoding encoding, LineEnding lineEnding, bool lossless)
         {
             Text = text;
             Encoding = encoding;
             LineEnding = lineEnding;
+            Lossless = lossless;
         }
 
         public string Text { get; }
-        public FileEncoding Encoding { get; }
+        public TextEncoding Encoding { get; }
         public LineEnding LineEnding { get; }
+
+        /// <summary>
+        /// 按 Encoding 重新编码能得到与文件完全相同的字节（不计 BOM 和换行符统一）。
+        /// 为 false 时文件中有无法按该编码识别的字节，写回会破坏原文件。
+        /// </summary>
+        public bool Lossless { get; }
     }
 
-    /// <summary>文本无法用 ANSI 编码表示时抛出，调用方应改用 Unicode 编码保存。</summary>
-    internal sealed class AnsiUnrepresentableException : Exception
+    /// <summary>文本含有目标编码无法表示的字符时抛出，调用方应改用 UTF-8 保存。</summary>
+    internal sealed class UnrepresentableTextException : Exception
     {
-        public AnsiUnrepresentableException() : base("文本中包含 ANSI 编码无法表示的字符。") { }
+        public UnrepresentableTextException(TextEncoding encoding) : base("文本中包含 " + encoding.Name + " 无法表示的字符。") { }
     }
 
     internal static class TextFile
     {
         /// <summary>新建文件使用的编码与换行，与 Windows 记事本默认值一致。</summary>
-        public const FileEncoding DefaultEncoding = FileEncoding.Utf8;
+        public static readonly TextEncoding DefaultEncoding = TextEncoding.Utf8;
         public const LineEnding DefaultLineEnding = LineEnding.CrLf;
-
-        public static string DisplayName(FileEncoding encoding)
-        {
-            switch (encoding)
-            {
-                case FileEncoding.Utf8: return "UTF-8";
-                case FileEncoding.Utf8Bom: return "带有 BOM 的 UTF-8";
-                case FileEncoding.Utf16LE: return "UTF-16 LE";
-                case FileEncoding.Utf16BE: return "UTF-16 BE";
-                case FileEncoding.Ansi: return "ANSI";
-                default: throw new ArgumentOutOfRangeException(nameof(encoding), encoding, null);
-            }
-        }
 
         public static string DisplayName(LineEnding lineEnding)
         {
@@ -97,74 +81,62 @@ namespace SuixinNotepad.Core
             }
         }
 
-        public static DecodedText Load(string path) => Decode(File.ReadAllBytes(path));
+        /// <summary>读取文件。encoding 为 null 时自动识别；不是文本文件时抛 NotTextFileException。</summary>
+        public static DecodedText Load(string path, TextEncoding? encoding = null) => Decode(File.ReadAllBytes(path), encoding);
 
-        public static DecodedText Decode(byte[] bytes)
+        /// <summary>
+        /// 解码。encoding 为 null 时自动识别编码，不是文本时抛 NotTextFileException；
+        /// 指定编码时按该编码解码，不合法的字节替换为 U+FFFD。两种情况下文件开头的 BOM 都优先。
+        /// </summary>
+        public static DecodedText Decode(byte[] bytes, TextEncoding? encoding = null)
         {
-            FileEncoding encoding;
-            string raw;
-            if (bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF)
-            {
-                encoding = FileEncoding.Utf8Bom;
-                raw = new UTF8Encoding(false, false).GetString(bytes, 3, bytes.Length - 3);
-            }
-            else if (bytes.Length >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE)
-            {
-                encoding = FileEncoding.Utf16LE;
-                raw = new UnicodeEncoding(false, false).GetString(bytes, 2, bytes.Length - 2);
-            }
-            else if (bytes.Length >= 2 && bytes[0] == 0xFE && bytes[1] == 0xFF)
-            {
-                encoding = FileEncoding.Utf16BE;
-                raw = new UnicodeEncoding(true, false).GetString(bytes, 2, bytes.Length - 2);
-            }
-            else if (TryDecodeStrictUtf8(bytes, out var utf8))
-            {
-                encoding = FileEncoding.Utf8;
-                raw = utf8;
-            }
-            else
-            {
-                encoding = FileEncoding.Ansi;
-                raw = Encoding.Default.GetString(bytes);
-            }
+            TextEncoding? bom = EncodingDetector.DetectBom(bytes);
+            TextEncoding chosen = bom ?? encoding ?? EncodingDetector.Detect(bytes, TextEncoding.SystemLegacy);
+            int offset = bom != null ? bom.Preamble.Length : 0;
 
-            return new DecodedText(NormalizeNewlines(raw), encoding, DetectLineEnding(raw));
+            string raw = chosen.LenientReader.GetString(bytes, offset, bytes.Length - offset);
+            bool lossless = IsLossless(chosen, raw, bytes, offset);
+            return new DecodedText(NormalizeNewlines(raw), chosen, DetectLineEnding(raw), lossless);
         }
 
         /// <summary>把文本按指定编码与换行编码为字节（含 BOM）。text 中换行可以是任意形式。</summary>
-        public static byte[] Encode(string text, FileEncoding encoding, LineEnding lineEnding)
+        public static byte[] Encode(string text, TextEncoding encoding, LineEnding lineEnding)
         {
             string body = ApplyLineEnding(NormalizeNewlines(text), lineEnding);
-            Encoding enc;
-            switch (encoding)
-            {
-                case FileEncoding.Utf8: enc = new UTF8Encoding(false); break;
-                case FileEncoding.Utf8Bom: enc = new UTF8Encoding(true); break;
-                case FileEncoding.Utf16LE: enc = new UnicodeEncoding(false, true); break;
-                case FileEncoding.Utf16BE: enc = new UnicodeEncoding(true, true); break;
-                case FileEncoding.Ansi:
-                    enc = Encoding.GetEncoding(Encoding.Default.CodePage, EncoderFallback.ExceptionFallback, DecoderFallback.ReplacementFallback);
-                    break;
-                default: throw new ArgumentOutOfRangeException(nameof(encoding), encoding, null);
-            }
-
-            byte[] preamble = enc.GetPreamble();
             byte[] content;
             try
             {
-                content = enc.GetBytes(body);
+                content = encoding.Writer.GetBytes(body);
             }
             catch (EncoderFallbackException)
             {
-                throw new AnsiUnrepresentableException();
+                throw new UnrepresentableTextException(encoding);
             }
 
+            byte[] preamble = encoding.Preamble;
             if (preamble.Length == 0) return content;
             var result = new byte[preamble.Length + content.Length];
             Buffer.BlockCopy(preamble, 0, result, 0, preamble.Length);
             Buffer.BlockCopy(content, 0, result, preamble.Length, content.Length);
             return result;
+        }
+
+        /// <summary>重新编码后逐字节比较。解码时被替换为 U+FFFD 的字节无法还原，比较必然不等。</summary>
+        private static bool IsLossless(TextEncoding encoding, string raw, byte[] bytes, int offset)
+        {
+            byte[] again;
+            try
+            {
+                again = encoding.Writer.GetBytes(raw);
+            }
+            catch (EncoderFallbackException)
+            {
+                return false;
+            }
+            if (again.Length != bytes.Length - offset) return false;
+            for (int i = 0; i < again.Length; i++)
+                if (again[i] != bytes[offset + i]) return false;
+            return true;
         }
 
         /// <summary>
@@ -222,20 +194,6 @@ namespace SuixinNotepad.Core
             if (i < 0) return DefaultLineEnding;
             if (raw[i] == '\n') return LineEnding.Lf;
             return i + 1 < raw.Length && raw[i + 1] == '\n' ? LineEnding.CrLf : LineEnding.Cr;
-        }
-
-        private static bool TryDecodeStrictUtf8(byte[] bytes, out string text)
-        {
-            try
-            {
-                text = new UTF8Encoding(false, true).GetString(bytes);
-                return true;
-            }
-            catch (DecoderFallbackException)
-            {
-                text = string.Empty;
-                return false;
-            }
         }
     }
 }

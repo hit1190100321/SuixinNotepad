@@ -130,6 +130,11 @@ namespace SuixinNotepad.UI
             NoteEditor? editor = Editor;
             if (editor == null || options.Find.Length == 0) return;
             Remember(options);
+            if (editor.ReadOnly)
+            {
+                ShowMessage(ReadOnlyHint);
+                return;
+            }
             string result = TextSearch.ReplaceAll(editor.GetText(), options, out int count);
             if (count == 0)
             {
@@ -215,22 +220,69 @@ namespace SuixinNotepad.UI
             charsLabel.Text = editor.TextLength.ToString("N0", CultureInfo.CurrentCulture) + " 个字符";
             zoomLabel.Text = settings.ZoomPercent + "%";
             lineEndingButton.Text = TextFile.DisplayName(doc.LineEnding);
-            encodingButton.Text = TextFile.DisplayName(doc.Encoding);
+            encodingButton.Text = doc.Lossy ? doc.Encoding.Name + "（只读）" : doc.Encoding.Name;
             if (doc.Untitled && doc.RefreshTitle()) UpdateTab(doc);
         }
 
-        private void ChangeEncoding(FileEncoding encoding)
+        /// <summary>改变保存时使用的编码，内容不变。文本中有该编码无法表示的字符时拒绝。</summary>
+        private void SaveWithEncoding(TextEncoding encoding)
         {
-            if (active == null || active.Encoding == encoding) return;
-            active.Encoding = encoding;
-            active.Dirty = true;
+            NoteDocument? doc = active;
+            if (doc?.Editor == null || doc.Lossy) return;
+            try
+            {
+                TextFile.Encode(doc.Editor.GetText(), encoding, doc.LineEnding);
+            }
+            catch (UnrepresentableTextException)
+            {
+                MessageBox.Show(this, "当前内容中有 " + encoding.Name + " 无法表示的字符，不能用这种编码保存。", AppName,
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            doc.EncodingForced = true;
+            if (doc.Encoding == encoding) return;
+            doc.Encoding = encoding;
+            doc.Dirty = true;
             RestartTimer(autosaveTimer);
             UpdateStatus();
+            SaveSession();
+        }
+
+        /// <summary>按指定编码重新读取磁盘上的文件。未写回的修改先写回。</summary>
+        private void ReopenWithEncoding(TextEncoding encoding)
+        {
+            NoteDocument? doc = active;
+            if (doc?.Editor == null || !File.Exists(doc.Path)) return;
+            if (doc.Dirty && WriteDocument(doc) == null)
+            {
+                MessageBox.Show(this, "无法保存“" + doc.Path + "”：" + doc.SaveError, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            DecodedText content;
+            try
+            {
+                content = TextFile.Load(doc.Path, encoding);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                MessageBox.Show(this, "无法打开“" + doc.Path + "”：" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            doc.Encoding = encoding;
+            doc.EncodingForced = true;
+            ShowDecoded(doc, content);
+            if (content.Encoding != encoding)
+                ShowMessage("文件开头的标记表明它是 " + content.Encoding.Name + "，已按 " + content.Encoding.Name + " 打开");
+            else if (doc.Lossy)
+                ShowMessage("按 " + encoding.Name + " 无法完整识别这个文件，已只读打开");
+            SaveSession();
         }
 
         private void ChangeLineEnding(LineEnding lineEnding)
         {
-            if (active == null || active.LineEnding == lineEnding) return;
+            if (active == null || active.Lossy || active.LineEnding == lineEnding) return;
             active.LineEnding = lineEnding;
             active.Dirty = true;
             RestartTimer(autosaveTimer);

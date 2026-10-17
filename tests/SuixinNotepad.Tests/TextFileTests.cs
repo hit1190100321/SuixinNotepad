@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Text;
 using SuixinNotepad.Core;
 using Xunit;
@@ -9,25 +10,38 @@ namespace SuixinNotepad.Tests
     {
         private const string Sample = "第一行 hello\n第二行\n";
 
-        [Theory]
-        [InlineData((int)FileEncoding.Utf8)]
-        [InlineData((int)FileEncoding.Utf8Bom)]
-        [InlineData((int)FileEncoding.Utf16LE)]
-        [InlineData((int)FileEncoding.Utf16BE)]
-        [InlineData((int)FileEncoding.Ansi)]
-        public void 各编码写出后能识别并原样读回(int encodingValue)
+        public static TheoryData<string> UnicodeEncodings()
         {
-            var encoding = (FileEncoding)encodingValue;
+            var data = new TheoryData<string>();
+            foreach (TextEncoding e in TextEncoding.All.Where(e => e.IsUnicode)) data.Add(e.Name);
+            return data;
+        }
+
+        [Theory]
+        [MemberData(nameof(UnicodeEncodings))]
+        public void Unicode编码写出后能自动识别并原样读回(string name)
+        {
+            TextEncoding encoding = TextEncoding.FromName(name)!;
             byte[] bytes = TextFile.Encode(Sample, encoding, LineEnding.CrLf);
             DecodedText decoded = TextFile.Decode(bytes);
 
             Assert.Equal(Sample, decoded.Text);
+            Assert.Same(encoding, decoded.Encoding);
             Assert.Equal(LineEnding.CrLf, decoded.LineEnding);
-            // 系统 ANSI 代码页为 UTF-8 时，ANSI 文件与无 BOM 的 UTF-8 无法区分
-            if (encoding == FileEncoding.Ansi && Encoding.Default.CodePage == 65001)
-                Assert.Equal(FileEncoding.Utf8, decoded.Encoding);
-            else
-                Assert.Equal(encoding, decoded.Encoding);
+            Assert.True(decoded.Lossless);
+        }
+
+        [Fact]
+        public void 每种编码按指定编码读回与写出一致()
+        {
+            foreach (TextEncoding encoding in TextEncoding.All)
+            {
+                const string text = "Hello, world 123\n";
+                byte[] bytes = TextFile.Encode(text, encoding, LineEnding.Lf);
+                DecodedText decoded = TextFile.Decode(bytes, encoding);
+                Assert.Equal(text, decoded.Text);
+                Assert.True(decoded.Lossless, encoding.Name);
+            }
         }
 
         [Theory]
@@ -44,10 +58,43 @@ namespace SuixinNotepad.Tests
         }
 
         [Fact]
-        public void ANSI无法表示的字符会报错而不是变成问号()
+        public void 编码无法表示的字符会报错而不是变成问号()
         {
-            if (Encoding.Default.CodePage == 65001) return;
-            Assert.Throws<AnsiUnrepresentableException>(() => TextFile.Encode("emoji 😀", FileEncoding.Ansi, LineEnding.CrLf));
+            Assert.Throws<UnrepresentableTextException>(() => TextFile.Encode("emoji 😀", TextEncoding.Gbk, LineEnding.CrLf));
+            Assert.Throws<UnrepresentableTextException>(() => TextFile.Encode("中文", TextEncoding.Windows1252, LineEnding.CrLf));
+            // GB18030 能表示全部 Unicode 字符
+            Assert.Equal("emoji 😀", TextFile.Decode(TextFile.Encode("emoji 😀", TextEncoding.Gb18030, LineEnding.CrLf), TextEncoding.Gb18030).Text);
+        }
+
+        [Fact]
+        public void 含无法识别字节的文件标记为有损()
+        {
+            byte[] gbk = TextEncoding.Gbk.Writer.GetBytes("中文内容");
+            byte[] broken = gbk.Concat(new byte[] { 0xFF, 0x41 }).ToArray();
+
+            DecodedText decoded = TextFile.Decode(broken, TextEncoding.Gb18030);
+            Assert.False(decoded.Lossless);
+            Assert.Contains('\uFFFD', decoded.Text);
+
+            // UTF-8 文件按 Big5 打开
+            Assert.False(TextFile.Decode(Encoding.UTF8.GetBytes("中文内容"), TextEncoding.Big5).Lossless);
+        }
+
+        [Fact]
+        public void 文件本身含有替换字符时不算有损()
+        {
+            DecodedText decoded = TextFile.Decode(Encoding.UTF8.GetBytes("a\uFFFDb"));
+            Assert.Same(TextEncoding.Utf8, decoded.Encoding);
+            Assert.True(decoded.Lossless);
+        }
+
+        [Fact]
+        public void 指定编码时BOM优先()
+        {
+            byte[] bytes = TextFile.Encode("中文", TextEncoding.Utf8Bom, LineEnding.CrLf);
+            DecodedText decoded = TextFile.Decode(bytes, TextEncoding.Big5);
+            Assert.Same(TextEncoding.Utf8Bom, decoded.Encoding);
+            Assert.Equal("中文", decoded.Text);
         }
 
         [Fact]

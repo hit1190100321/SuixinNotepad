@@ -53,6 +53,12 @@ namespace SuixinNotepad.UI
                     PendingSelectionLength = tab.SelectionLength,
                 };
                 doc.RestoreTitle(tab.Title);
+                TextEncoding? forced = TextEncoding.FromName(tab.Encoding);
+                if (forced != null)
+                {
+                    doc.Encoding = forced;
+                    doc.EncodingForced = true;
+                }
                 AddDocument(doc, docs.Count);
             }
 
@@ -140,9 +146,19 @@ namespace SuixinNotepad.UI
 
                 var doc = new NoteDocument(path, false);
                 AddDocument(doc, InsertIndex);
-                if (ActivateDocument(doc)) ApplyLogStamp(doc);
+                if (!ActivateDocument(doc)) continue;
+                if (doc.Lossy)
+                    MessageBox.Show(this, LossyMessage(doc), AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                else
+                    ApplyLogStamp(doc);
             }
         }
+
+        private const string ReadOnlyHint = "此文件已只读打开，可换一种编码重新打开或另存为新文件";
+
+        private static string LossyMessage(NoteDocument doc) =>
+            "“" + doc.FileName + "”中有无法按 " + doc.Encoding.Name + " 识别的内容，已只读打开以免损坏原文件。\r\n\r\n" +
+            "可以点状态栏的编码，换一种编码重新打开，或者另存为新文件。";
 
         /// <summary>与 Windows 记事本相同：以 .LOG 开头的文件，打开时在末尾追加当前时间。</summary>
         private void ApplyLogStamp(NoteDocument doc)
@@ -195,7 +211,7 @@ namespace SuixinNotepad.UI
         {
             if (doc.Editor != null) return;
 
-            DecodedText? content = File.Exists(doc.Path) ? TextFile.Load(doc.Path) : null;
+            DecodedText? content = File.Exists(doc.Path) ? TextFile.Load(doc.Path, doc.EncodingForced ? doc.Encoding : null) : null;
 
             var editor = new NoteEditor
             {
@@ -212,8 +228,7 @@ namespace SuixinNotepad.UI
             if (content != null)
             {
                 editor.SetText(content.Text);
-                doc.Encoding = content.Encoding;
-                doc.LineEnding = content.LineEnding;
+                ApplyDecoded(doc, editor, content);
                 doc.DiskStamp = FileStamp.Of(doc.Path);
             }
 
@@ -231,9 +246,20 @@ namespace SuixinNotepad.UI
             };
             editor.DragEnter += OnFileDragEnter;
             editor.DragDrop += OnFileDragDrop;
+            editor.KeyPress += (s, e) => { if (doc.Lossy) ShowMessage(ReadOnlyHint); };
 
             doc.Editor = editor;
             if (doc.RefreshTitle()) UpdateTab(doc);
+        }
+
+        /// <summary>记下解码结果。文件开头的 BOM 与用户选定的编码不同时，以 BOM 为准。</summary>
+        private static void ApplyDecoded(NoteDocument doc, NoteEditor editor, DecodedText content)
+        {
+            if (doc.EncodingForced && content.Encoding != doc.Encoding) doc.EncodingForced = false;
+            doc.Encoding = content.Encoding;
+            doc.LineEnding = content.LineEnding;
+            doc.Lossy = !content.Lossless;
+            editor.ReadOnly = doc.Lossy;
         }
 
         private void ApplyViewSettings(NoteEditor editor)
@@ -319,6 +345,7 @@ namespace SuixinNotepad.UI
         private byte[]? WriteDocument(NoteDocument doc, bool force = false)
         {
             if (doc.Editor == null) return null;
+            if (doc.Lossy) throw new InvalidOperationException("有损解码的文档不能写回：" + doc.Path);
             string text = doc.Editor.GetText();
             if (!force && doc.Untitled && text.Length == 0 && !File.Exists(doc.Path))
             {
@@ -331,11 +358,11 @@ namespace SuixinNotepad.UI
             {
                 bytes = TextFile.Encode(text, doc.Encoding, doc.LineEnding);
             }
-            catch (AnsiUnrepresentableException)
+            catch (UnrepresentableTextException)
             {
-                doc.Encoding = FileEncoding.Utf8;
+                ShowMessage("“" + doc.Title + "”包含 " + doc.Encoding.Name + " 无法表示的字符，已改用 UTF-8 保存");
+                doc.Encoding = TextEncoding.Utf8;
                 bytes = TextFile.Encode(text, doc.Encoding, doc.LineEnding);
-                ShowMessage("“" + doc.Title + "”包含 ANSI 无法表示的字符，已改用 UTF-8 保存");
                 if (doc == active) UpdateStatus();
             }
 
@@ -365,6 +392,11 @@ namespace SuixinNotepad.UI
         /// <summary>手动保存：写入文件，再按设置备份并清理。返回文件是否写入成功。</summary>
         private bool SaveManually(NoteDocument doc)
         {
+            if (doc.Lossy)
+            {
+                MessageBox.Show(this, LossyMessage(doc), AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
             byte[]? bytes = WriteDocument(doc, force: true);
             if (bytes == null)
             {
@@ -448,14 +480,17 @@ namespace SuixinNotepad.UI
 
             string oldPath = doc.Path;
             bool wasUntitled = doc.Untitled;
+            bool wasLossy = doc.Lossy;
             doc.Path = target;
             doc.Untitled = false;
+            doc.Lossy = false;
             byte[]? bytes = WriteDocument(doc, force: true);
             if (bytes == null)
             {
                 string error = doc.SaveError ?? "";
                 doc.Path = oldPath;
                 doc.Untitled = wasUntitled;
+                doc.Lossy = wasLossy;
                 doc.SaveError = null;
                 UpdateTab(doc);
                 MessageBox.Show(this, "无法保存到“" + target + "”：\r\n" + error, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -476,9 +511,11 @@ namespace SuixinNotepad.UI
                 }
             }
 
+            doc.Editor!.ReadOnly = false;
             BackupAfterManualSave(doc, bytes);
             doc.RefreshTitle();
             UpdateTab(doc);
+            if (doc == active) UpdateStatus();
             SaveSession();
         }
 
@@ -682,7 +719,7 @@ namespace SuixinNotepad.UI
         {
             if (doc == null) return;
             BackupEntry? entry;
-            using (var dialog = new HistoryDialog(backups, doc.Path, doc.Title, editorFont))
+            using (var dialog = new HistoryDialog(backups, doc.Path, doc.EncodingForced ? doc.Encoding : null, doc.Title, editorFont))
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
                 entry = dialog.Selected;
@@ -697,18 +734,22 @@ namespace SuixinNotepad.UI
             DecodedText decoded;
             try
             {
-                decoded = TextFile.Decode(backups.Read(entry));
+                decoded = TextFile.Decode(backups.Read(entry), doc.EncodingForced ? doc.Encoding : null);
             }
             catch (Exception ex) when (IsFileError(ex))
             {
                 MessageBox.Show(this, "无法读取存档：" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
-            if (!SaveManually(doc)) return;
+            if (!decoded.Lossless)
+            {
+                MessageBox.Show(this, "这份存档中有无法按 " + decoded.Encoding.Name + " 识别的内容，不能恢复。", AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            if (!(doc.Lossy ? ArchiveRawFile(doc) : SaveManually(doc))) return;
 
             NoteEditor editor = doc.Editor!;
-            doc.Encoding = decoded.Encoding;
-            doc.LineEnding = decoded.LineEnding;
+            ApplyDecoded(doc, editor, decoded);
             editor.ReplaceAllUndoable(decoded.Text);
             editor.Select(0, 0);
             editor.ScrollToCaret();
@@ -720,6 +761,21 @@ namespace SuixinNotepad.UI
             UpdateTab(doc);
             UpdateStatus();
             ShowMessage("已恢复到 " + entry.SavedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture) + " 的存档");
+        }
+
+        /// <summary>有损解码的文档无法按文本保存，恢复存档前把磁盘上的原始字节原样存档。</summary>
+        private bool ArchiveRawFile(NoteDocument doc)
+        {
+            try
+            {
+                if (File.Exists(doc.Path)) backups.Create(doc.Path, File.ReadAllBytes(doc.Path));
+                return true;
+            }
+            catch (Exception ex) when (IsFileError(ex))
+            {
+                MessageBox.Show(this, "无法存档当前文件，已取消恢复：" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return false;
+            }
         }
 
         #endregion
@@ -739,7 +795,8 @@ namespace SuixinNotepad.UI
                     FileStamp? now = FileStamp.Of(doc.Path);
                     if (now == null)
                     {
-                        // 文件被外部删除：保留内容，下一次自动保存时重新写出
+                        // 文件被外部删除：保留内容，下一次自动保存时重新写出；有损解码的内容不能写出
+                        if (doc.Lossy) continue;
                         doc.DiskStamp = null;
                         doc.Dirty = true;
                         RestartTimer(autosaveTimer);
@@ -766,17 +823,24 @@ namespace SuixinNotepad.UI
 
         private void Reload(NoteDocument doc)
         {
-            NoteEditor editor = doc.Editor!;
             DecodedText content;
             try
             {
-                content = TextFile.Load(doc.Path);
+                content = TextFile.Load(doc.Path, doc.EncodingForced ? doc.Encoding : null);
             }
             catch (Exception ex) when (IsFileError(ex))
             {
                 ShowMessage("无法重新载入“" + doc.Title + "”：" + ex.Message);
                 return;
             }
+            ShowDecoded(doc, content);
+            if (doc.Lossy) ShowMessage("“" + doc.Title + "”被其他程序改成了无法按 " + doc.Encoding.Name + " 识别的内容，已只读打开");
+        }
+
+        /// <summary>用新的解码结果替换编辑器内容（不进入撤消记录，不触发自动保存）。</summary>
+        private void ShowDecoded(NoteDocument doc, DecodedText content)
+        {
+            NoteEditor editor = doc.Editor!;
 
             int start = editor.SelectionStart;
             suppressTextEvents = true;
@@ -790,8 +854,7 @@ namespace SuixinNotepad.UI
             }
             editor.Select(Math.Min(start, editor.TextLength), 0);
             editor.ScrollToCaret();
-            doc.Encoding = content.Encoding;
-            doc.LineEnding = content.LineEnding;
+            ApplyDecoded(doc, editor, content);
             doc.DiskStamp = FileStamp.Of(doc.Path);
             doc.Dirty = false;
             if (doc.RefreshTitle()) UpdateTab(doc);
@@ -807,7 +870,13 @@ namespace SuixinNotepad.UI
             var state = new SessionState { ActiveIndex = active == null ? 0 : Math.Max(0, docs.IndexOf(active)) };
             foreach (NoteDocument doc in docs)
             {
-                var tab = new SessionTab { Path = doc.Path, Untitled = doc.Untitled, Title = doc.Title };
+                var tab = new SessionTab
+                {
+                    Path = doc.Path,
+                    Untitled = doc.Untitled,
+                    Title = doc.Title,
+                    Encoding = doc.EncodingForced ? doc.Encoding.Name : "",
+                };
                 if (doc.Editor != null)
                 {
                     tab.SelectionStart = doc.Editor.SelectionStart;

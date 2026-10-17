@@ -14,6 +14,7 @@ namespace SuixinNotepad.UI
     {
         private readonly BackupStore store;
         private readonly string filePath;
+        private readonly TextEncoding? encoding;
         private readonly ListView list = new ListView
         {
             View = View.Details,
@@ -33,10 +34,12 @@ namespace SuixinNotepad.UI
         private readonly Button restore = new Button { Text = "恢复此版本(&R)", AutoSize = true, MinimumSize = new Size(Dpi.Scale(110), 0) };
         private IReadOnlyList<BackupEntry> entries = Array.Empty<BackupEntry>();
 
-        public HistoryDialog(BackupStore store, string filePath, string title, Font editorFont)
+        /// <param name="encoding">用户为该文件选定的编码；为 null 时自动识别。</param>
+        public HistoryDialog(BackupStore store, string filePath, TextEncoding? encoding, string title, Font editorFont)
         {
             this.store = store;
             this.filePath = filePath;
+            this.encoding = encoding;
 
             Text = "存档历史 - " + title;
             Font = SystemFonts.MessageBoxFont;
@@ -109,7 +112,14 @@ namespace SuixinNotepad.UI
                 preview.SetText(entries.Count == 0 ? "暂无存档" : "");
                 return;
             }
-            preview.SetText(TextFile.Decode(store.Read(entry)).Text);
+            try
+            {
+                preview.SetText(TextFile.Decode(store.Read(entry), encoding).Text);
+            }
+            catch (IOException ex)
+            {
+                preview.SetText("无法读取存档：" + ex.Message);
+            }
         }
 
         private void OpenFolder()

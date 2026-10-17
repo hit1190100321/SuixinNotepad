@@ -25,8 +25,17 @@ namespace SuixinNotepad.UI
         /// <summary>用户未指定位置：文件位于默认文件夹，名称由程序生成，标题取自正文首行。</summary>
         public bool Untitled { get; set; }
 
-        public FileEncoding Encoding { get; set; } = TextFile.DefaultEncoding;
+        public TextEncoding Encoding { get; set; } = TextFile.DefaultEncoding;
         public LineEnding LineEnding { get; set; } = TextFile.DefaultLineEnding;
+
+        /// <summary>编码由用户选定（按编码重新打开或按编码保存），载入时不再自动识别，并记入会话。</summary>
+        public bool EncodingForced { get; set; }
+
+        /// <summary>
+        /// 文件中有无法按当前编码识别的字节。写回会破坏原文件，因此编辑器只读，
+        /// 只能换编码重新打开或另存为新文件。
+        /// </summary>
+        public bool Lossy { get; set; }
 
         /// <summary>最近一次读写后文件在磁盘上的状态；文件尚未创建时为 null。</summary>
         public FileStamp? DiskStamp { get; set; }

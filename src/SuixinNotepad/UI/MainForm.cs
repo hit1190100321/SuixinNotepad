@@ -30,7 +30,7 @@ namespace SuixinNotepad.UI
         private readonly ToolStripStatusLabel charsLabel = StatusCell(110);
         private readonly ToolStripStatusLabel zoomLabel = StatusCell(56);
         private readonly ToolStripDropDownButton lineEndingButton = new ToolStripDropDownButton { ShowDropDownArrow = false, AutoSize = false, Size = Dpi.Scale(120, StatusHeight) };
-        private readonly ToolStripDropDownButton encodingButton = new ToolStripDropDownButton { ShowDropDownArrow = false, AutoSize = false, Size = Dpi.Scale(130, StatusHeight) };
+        private readonly ToolStripDropDownButton encodingButton = new ToolStripDropDownButton { ShowDropDownArrow = false, AutoSize = false, Size = Dpi.Scale(170, StatusHeight) };
         private readonly Timer autosaveTimer = new Timer { Interval = 1500 };
         private readonly Timer statusTimer = new Timer { Interval = 120 };
         private readonly Timer messageTimer = new Timer { Interval = 5000 };
@@ -244,15 +244,29 @@ namespace SuixinNotepad.UI
             menu.Items.AddRange(new ToolStripItem[] { file, edit, format, view, help });
         }
 
+        /// <summary>编码子菜单：所有支持的编码，按语言分组，组间用分隔线隔开。</summary>
+        private static ToolStripMenuItem EncodingMenu(string text, Action<TextEncoding> onClick)
+        {
+            var menu = new ToolStripMenuItem(text);
+            foreach (IReadOnlyList<TextEncoding> group in TextEncoding.Groups)
+            {
+                if (menu.DropDownItems.Count > 0) menu.DropDownItems.Add(new ToolStripSeparator());
+                foreach (TextEncoding encoding in group)
+                {
+                    var item = new ToolStripMenuItem(encoding.Label) { Tag = encoding };
+                    item.Click += (s, e) => onClick(encoding);
+                    menu.DropDownItems.Add(item);
+                }
+            }
+            return menu;
+        }
+
         private void BuildStatusBar()
         {
-            foreach (FileEncoding enc in Enum.GetValues(typeof(FileEncoding)))
-            {
-                FileEncoding value = enc;
-                var item = new ToolStripMenuItem(TextFile.DisplayName(value)) { Tag = value };
-                item.Click += (s, e) => ChangeEncoding(value);
-                encodingButton.DropDownItems.Add(item);
-            }
+            var reopen = EncodingMenu("通过编码重新打开(&R)", ReopenWithEncoding);
+            var saveAs = EncodingMenu("通过编码保存(&S)", SaveWithEncoding);
+            encodingButton.DropDownItems.Add(reopen);
+            encodingButton.DropDownItems.Add(saveAs);
             foreach (LineEnding le in Enum.GetValues(typeof(LineEnding)))
             {
                 LineEnding value = le;
@@ -262,8 +276,15 @@ namespace SuixinNotepad.UI
             }
             encodingButton.DropDownOpening += (s, e) =>
             {
-                foreach (ToolStripMenuItem item in encodingButton.DropDownItems)
-                    item.Checked = active != null && (FileEncoding)item.Tag == active.Encoding;
+                reopen.Enabled = active != null && File.Exists(active.Path);
+                saveAs.Enabled = active != null && !active.Lossy;
+                foreach (ToolStripMenuItem menu in new[] { reopen, saveAs })
+                {
+                    foreach (ToolStripItem item in menu.DropDownItems)
+                    {
+                        if (item is ToolStripMenuItem entry) entry.Checked = active != null && entry.Tag == active.Encoding;
+                    }
+                }
             };
             lineEndingButton.DropDownOpening += (s, e) =>
             {

@@ -205,9 +205,10 @@ namespace SuixinNotepad.UI
             Modified = false;
         }
 
-        /// <summary>用新文本替换当前选区，可撤销。</summary>
+        /// <summary>用新文本替换当前选区，可撤销。EM_REPLACESEL 不受只读限制，只读时这里不做任何修改。</summary>
         public void ReplaceSelection(string text)
         {
+            if (ReadOnly) return;
             SendMessage(Handle, EM_REPLACESEL, (IntPtr)1, ToControl(text));
         }
 

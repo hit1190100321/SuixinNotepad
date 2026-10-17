@@ -21,7 +21,9 @@ dotnet test tests\SuixinNotepad.Tests                      # 只跑测试
 ## 代码结构
 
 - `Core/`：与界面无关、可单元测试的逻辑。
-  - `TextFile`：编码识别（BOM → 严格 UTF-8 → ANSI）、编码写出、换行符识别，`WriteAtomic` 先写临时文件再替换。ANSI 写不下的字符抛 `AnsiUnrepresentableException`，调用方改存 UTF-8。
+  - `TextEncoding`：支持的编码表（`All`、菜单分组 `Groups`），按引用比较，会话里存 `Name`。`SystemLegacy` 是系统默认的旧编码，简体中文系统用 GB18030 代替 GBK。
+  - `EncodingDetector`：BOM → 含 NUL 时判断无 BOM 的 UTF-16，否则抛 `NotTextFileException` → 严格 UTF-8 → 旧编码。旧编码中能严格解码的候选按“非 ASCII 字符里该语言常用字的比例”打分，系统默认编码领先 0.2 以内时仍用默认编码。韩文按中文解码时汉字全部落在 GBK/Big5 的 B0–C8 区段，以此压低中文分数。调整打分后用 `EncodingDetectorTests` 的样本验证。
+  - `TextFile`：解码（自动识别或指定编码，BOM 优先）、编码写出、换行符识别，`WriteAtomic` 先写临时文件再替换。`DecodedText.Lossless` 表示重新编码能得到与文件相同的字节。非 Unicode 编码写不下的字符抛 `UnrepresentableTextException`。
   - `BackupStore`：存档。每个文件一个目录，目录名为“文件名_完整路径 SHA256 前 16 位”，目录内 `source.txt` 记录原路径；存档文件名是保存时间。`Create` 遇到与最新存档相同的内容返回 false。`Cleanup` 按一年、50 份清理。`MoveHistory` 用于另存为和重命名。
   - `AppSettings` / `SessionState`：设置和会话，存于 `%LOCALAPPDATA%\SuixinNotepad`。新增字段的默认值写在 `[OnDeserializing]` 方法里，旧文件缺字段时才能拿到正确默认值。
   - `UpdateService`：读取 `latest.json`（网址或文件夹），比较版本，下载并校验 SHA-256。
@@ -40,6 +42,7 @@ dotnet test tests\SuixinNotepad.Tests                      # 只跑测试
 - 手动保存 = 写回文件 + 存档（自动备份开启时）+ 清理（自动清理开启时）。自动保存只写回文件。
 - 恢复存档前先手动保存当前内容，恢复操作可撤消。
 - 读写文件出错时，标签显示红色并保留内容，不静默丢弃。
+- 解码有损（`NoteDocument.Lossy`）的文档编辑器只读，`WriteDocument` 遇到它直接抛异常；只能按编码重新打开或另存为。用户选定的编码记在 `EncodingForced`，载入、重新载入、存档预览和恢复都按它解码。
 - 安装包总是注册打开方式、ProgId 和“默认应用”功能（`Software\SuixinNotepad\Capabilities`），默认打开程序只经用户在系统对话框中确认后改变。
 
 ## 规范
