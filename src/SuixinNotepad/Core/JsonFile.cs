@@ -49,6 +49,7 @@ namespace SuixinNotepad.Core
         /// <summary>
         /// 读取配置类文件。文件不存在时返回 fallback；文件损坏时把它改名留档并返回 fallback，
         /// 同时通过 brokenCopy 告知调用方，由调用方提示用户。
+        /// 文件存在但读不出来（被占用、没有权限）时照常抛出：此时改用默认内容，退出时会覆盖用户原有的设置。
         /// </summary>
         public static T LoadOrDefault<T>(string path, Func<T> fallback, out string? brokenCopy)
         {
@@ -60,7 +61,9 @@ namespace SuixinNotepad.Core
             }
             catch (SerializationException)
             {
-                brokenCopy = path + ".损坏-" + DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                string stem = path + ".损坏-" + DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
+                brokenCopy = stem;
+                for (int n = 2; File.Exists(brokenCopy); n++) brokenCopy = stem + "-" + n;
                 File.Move(path, brokenCopy);
                 return fallback();
             }

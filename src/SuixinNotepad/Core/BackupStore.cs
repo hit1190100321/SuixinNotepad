@@ -97,14 +97,18 @@ namespace SuixinNotepad.Core
 
         public byte[] Read(BackupEntry entry) => File.ReadAllBytes(entry.BackupPath);
 
-        /// <summary>删除一年以前的备份，再把数量压到上限以内（删除最旧的）。返回删除的数量。</summary>
-        public int Cleanup(string filePath)
+        /// <summary>
+        /// 删除一年以前的备份，再把数量压到上限以内（删除最旧的）。返回删除的数量。
+        /// keep 是正在恢复的那份备份，无论新旧都保留，下一次清理时再按规则处理。
+        /// </summary>
+        public int Cleanup(string filePath, string? keep = null)
         {
             DateTime cutoff = clock() - MaxAge;
             int removed = 0;
             IReadOnlyList<BackupEntry> entries = List(filePath);
             for (int i = 0; i < entries.Count; i++)
             {
+                if (keep != null && string.Equals(entries[i].BackupPath, keep, StringComparison.OrdinalIgnoreCase)) continue;
                 if (entries[i].SavedAt < cutoff || i >= MaxCount)
                 {
                     File.Delete(entries[i].BackupPath);

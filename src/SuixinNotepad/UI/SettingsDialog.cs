@@ -77,13 +77,23 @@ namespace SuixinNotepad.UI
 
             autoBackup.CheckedChanged += (s, e) => SyncCleanup();
             browse.Click += (s, e) => BrowseFolder();
-            openBackups.Click += (s, e) =>
-            {
-                Directory.CreateDirectory(backupRoot);
-                Process.Start("explorer.exe", "\"" + backupRoot + "\"");
-            };
+            openBackups.Click += (s, e) => OpenBackupFolder(backupRoot);
             changeDefault.Click += (s, e) => ChooseTxtDefault();
             ok.Click += (s, e) => Confirm();
+        }
+
+        private void OpenBackupFolder(string backupRoot)
+        {
+            try
+            {
+                Directory.CreateDirectory(backupRoot);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                MessageBox.Show(this, "无法打开备份文件夹：" + ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+            Process.Start("explorer.exe", "\"" + backupRoot + "\"");
         }
 
         private void ShowTxtDefault() => txtDefault.Text = DefaultApp.CurrentName() ?? "未设置";
@@ -126,6 +136,14 @@ namespace SuixinNotepad.UI
             {
                 MessageBox.Show(this, "无法使用这个文件夹：" + ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 notesFolder.Focus();
+                return;
+            }
+
+            string? invalidSource = UpdateService.ValidateSource(updateSource.Text);
+            if (invalidSource != null)
+            {
+                MessageBox.Show(this, invalidSource, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                updateSource.Focus();
                 return;
             }
 

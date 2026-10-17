@@ -88,7 +88,16 @@ namespace SuixinNotepad.UI
 
         private void LoadEntries()
         {
-            entries = store.List(filePath);
+            try
+            {
+                entries = store.List(filePath);
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                entries = new BackupEntry[0];
+                preview.SetText("无法读取存档：" + ex.Message);
+                return;
+            }
             list.BeginUpdate();
             list.Items.Clear();
             foreach (BackupEntry entry in entries)
@@ -116,7 +125,7 @@ namespace SuixinNotepad.UI
             {
                 preview.SetText(TextFile.Decode(store.Read(entry), encoding).Text);
             }
-            catch (IOException ex)
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
                 preview.SetText("无法读取存档：" + ex.Message);
             }

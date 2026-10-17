@@ -39,17 +39,23 @@ namespace SuixinNotepad.Core
     /// <summary>解码后的文本。Text 中的换行统一为 '\n'。</summary>
     internal sealed class DecodedText
     {
-        public DecodedText(string text, TextEncoding encoding, LineEnding lineEnding, bool lossless)
+        public DecodedText(string text, TextEncoding encoding, LineEnding lineEnding, bool mixedLineEndings, bool lossless)
         {
             Text = text;
             Encoding = encoding;
             LineEnding = lineEnding;
+            MixedLineEndings = mixedLineEndings;
             Lossless = lossless;
         }
 
         public string Text { get; }
         public TextEncoding Encoding { get; }
+
+        /// <summary>文件中第一处换行的形式，保存时所有换行都写成这种形式。</summary>
         public LineEnding LineEnding { get; }
+
+        /// <summary>文件混用了多种换行符，保存时会统一为 LineEnding。</summary>
+        public bool MixedLineEndings { get; }
 
         /// <summary>
         /// 按 Encoding 重新编码能得到与文件完全相同的字节（不计 BOM 和换行符统一）。
@@ -64,11 +70,24 @@ namespace SuixinNotepad.Core
         public UnrepresentableTextException(TextEncoding encoding) : base("文本中包含 " + encoding.Name + " 无法表示的字符。") { }
     }
 
+    /// <summary>文件超过能打开的大小上限。</summary>
+    internal sealed class FileTooLargeException : IOException
+    {
+        public FileTooLargeException(long size)
+            : base("文件有 " + (size / 1024 / 1024) + " MB，超过了能打开的上限 " + (TextFile.MaxFileSize / 1024 / 1024) + " MB。") { }
+    }
+
     internal static class TextFile
     {
         /// <summary>新建文件使用的编码与换行，与 Windows 记事本默认值一致。</summary>
         public static readonly TextEncoding DefaultEncoding = TextEncoding.Utf8;
         public const LineEnding DefaultLineEnding = LineEnding.CrLf;
+
+        /// <summary>
+        /// 能打开的最大文件。识别编码、解码和编辑器各要保存完整的副本，
+        /// 更大的文件会让界面长时间无响应，甚至耗尽内存。
+        /// </summary>
+        public const long MaxFileSize = 64L * 1024 * 1024;
 
         public static string DisplayName(LineEnding lineEnding)
         {
@@ -81,8 +100,27 @@ namespace SuixinNotepad.Core
             }
         }
 
+        /// <summary>读取文件的全部字节。允许其他程序同时写入（如正在写的日志），超过大小上限时抛 FileTooLargeException。</summary>
+        public static byte[] ReadBytes(string path)
+        {
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            {
+                long length = fs.Length;
+                if (length > MaxFileSize) throw new FileTooLargeException(length);
+                var bytes = new byte[length];
+                int read = 0;
+                while (read < bytes.Length)
+                {
+                    int n = fs.Read(bytes, read, bytes.Length - read);
+                    if (n == 0) throw new IOException("读取过程中文件被其他程序截短：" + path);
+                    read += n;
+                }
+                return bytes;
+            }
+        }
+
         /// <summary>读取文件。encoding 为 null 时自动识别；不是文本文件时抛 NotTextFileException。</summary>
-        public static DecodedText Load(string path, TextEncoding? encoding = null) => Decode(File.ReadAllBytes(path), encoding);
+        public static DecodedText Load(string path, TextEncoding? encoding = null) => Decode(ReadBytes(path), encoding);
 
         /// <summary>
         /// 解码。encoding 为 null 时自动识别编码，不是文本时抛 NotTextFileException；
@@ -96,7 +134,8 @@ namespace SuixinNotepad.Core
 
             string raw = chosen.LenientReader.GetString(bytes, offset, bytes.Length - offset);
             bool lossless = IsLossless(chosen, raw, bytes, offset);
-            return new DecodedText(NormalizeNewlines(raw), chosen, DetectLineEnding(raw), lossless);
+            LineEnding lineEnding = AnalyzeLineEndings(raw, out bool mixed);
+            return new DecodedText(NormalizeNewlines(raw), chosen, lineEnding, mixed, lossless);
         }
 
         /// <summary>把文本按指定编码与换行编码为字节（含 BOM）。text 中换行可以是任意形式。</summary>
@@ -140,34 +179,75 @@ namespace SuixinNotepad.Core
         }
 
         /// <summary>
-        /// 原子写入：先写同目录临时文件，再替换目标文件。
-        /// 写入中途失败或断电时，原文件保持完整。
+        /// 写入文件，写入中途失败或断电时原文件保持完整：先写同目录的临时文件，再替换目标文件。
+        /// 目标是符号链接时替换它指向的文件。以下情况无法替换，只能直接覆盖原文件：
+        /// 文件有多个硬链接（替换会断开链接）、目录不允许新建文件但文件本身可写、文件系统不支持替换。
         /// </summary>
         public static void WriteAtomic(string path, byte[] bytes)
         {
-            string fullPath = Path.GetFullPath(path);
-            string dir = Path.GetDirectoryName(fullPath)!;
-            string temp = Path.Combine(dir, "." + Path.GetFileName(fullPath) + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp");
+            string target = File.Exists(path) ? FilePath.ResolveLinks(path) : Path.GetFullPath(path);
+            bool exists = File.Exists(target);
+            if (exists && FilePath.Identify(target) is FileId id && id.Links > 1)
+            {
+                WriteInPlace(target, bytes);
+                return;
+            }
+
+            // 临时文件名保持很短，原文件名接近 255 个字符时也不会超长
+            string temp = Path.Combine(Path.GetDirectoryName(target)!, "~sx" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".tmp");
             try
             {
-                using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+                try
                 {
-                    fs.Write(bytes, 0, bytes.Length);
+                    using (var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, FileOptions.WriteThrough))
+                    {
+                        fs.Write(bytes, 0, bytes.Length);
+                    }
+                }
+                catch (UnauthorizedAccessException) when (exists)
+                {
+                    WriteInPlace(target, bytes);
+                    return;
                 }
 
-                if (File.Exists(fullPath))
+                if (!exists)
                 {
-                    File.Replace(temp, fullPath, null, true);
+                    File.Move(temp, target);
+                    return;
                 }
-                else
+                try
                 {
-                    File.Move(temp, fullPath);
+                    File.Replace(temp, target, null, true);
+                }
+                catch (IOException ex) when (ReplaceUnsupported(ex))
+                {
+                    WriteInPlace(target, bytes);
                 }
             }
             finally
             {
                 if (File.Exists(temp)) File.Delete(temp);
             }
+        }
+
+        /// <summary>直接覆盖已有文件的内容，文件本身（硬链接、权限、属性）保持不变。</summary>
+        private static void WriteInPlace(string path, byte[] bytes)
+        {
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Write, FileShare.Read))
+            {
+                fs.Write(bytes, 0, bytes.Length);
+                fs.SetLength(bytes.Length);
+                fs.Flush(true);
+            }
+        }
+
+        /// <summary>文件系统不支持 ReplaceFile（部分网络共享、FAT 卷）。共享冲突等其他错误照常抛出。</summary>
+        private static bool ReplaceUnsupported(IOException ex)
+        {
+            const int ErrorInvalidFunction = 1;
+            const int ErrorNotSupported = 50;
+            int code = ex.HResult & 0xFFFF;
+            return code == ErrorInvalidFunction || code == ErrorNotSupported;
         }
 
         public static string NormalizeNewlines(string text)
@@ -187,13 +267,43 @@ namespace SuixinNotepad.Core
             }
         }
 
-        /// <summary>以文件中出现的第一个换行为准；没有换行时使用默认值。</summary>
-        private static LineEnding DetectLineEnding(string raw)
+        /// <summary>以文件中出现的第一个换行为准，没有换行时使用默认值；同时检查是否混用了其他换行。</summary>
+        private static LineEnding AnalyzeLineEndings(string raw, out bool mixed)
         {
-            int i = raw.IndexOfAny(new[] { '\r', '\n' });
-            if (i < 0) return DefaultLineEnding;
-            if (raw[i] == '\n') return LineEnding.Lf;
-            return i + 1 < raw.Length && raw[i + 1] == '\n' ? LineEnding.CrLf : LineEnding.Cr;
+            LineEnding? first = null;
+            mixed = false;
+            for (int i = 0; i < raw.Length; i++)
+            {
+                LineEnding current;
+                if (raw[i] == '\n')
+                {
+                    current = LineEnding.Lf;
+                }
+                else if (raw[i] != '\r')
+                {
+                    continue;
+                }
+                else if (i + 1 < raw.Length && raw[i + 1] == '\n')
+                {
+                    current = LineEnding.CrLf;
+                    i++;
+                }
+                else
+                {
+                    current = LineEnding.Cr;
+                }
+
+                if (first == null)
+                {
+                    first = current;
+                }
+                else if (first != current)
+                {
+                    mixed = true;
+                    break;
+                }
+            }
+            return first ?? DefaultLineEnding;
         }
     }
 }

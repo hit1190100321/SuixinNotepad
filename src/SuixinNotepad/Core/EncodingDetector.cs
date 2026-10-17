@@ -71,8 +71,8 @@ namespace SuixinNotepad.Core
             }
             int units = bytes.Length / 2;
             TextEncoding? guess = null;
-            if (odd >= units / 10 && even <= odd / 10) guess = TextEncoding.Utf16LE;
-            else if (even >= units / 10 && odd <= even / 10) guess = TextEncoding.Utf16BE;
+            if (odd >= units / 10 && even <= odd / 10) guess = TextEncoding.Utf16LENoBom;
+            else if (even >= units / 10 && odd <= even / 10) guess = TextEncoding.Utf16BENoBom;
             if (guess == null || !TryDecode(guess, bytes, out string text)) return null;
             // 解出来仍有大量 NUL 或控制字符，说明不是 UTF-16 文本
             return text.Count(c => c < ' ' && c != '\t' && c != '\r' && c != '\n') > text.Length / 100 ? null : guess;
@@ -127,11 +127,20 @@ namespace SuixinNotepad.Core
                 encoding.Family == EncodingFamily.SimplifiedChinese ? GbKoreanShadow.Value :
                 encoding.Family == EncodingFamily.TraditionalChinese ? Big5KoreanShadow.Value : null;
             int nonAscii = 0, good = 0, spaces = 0, kana = 0, hangul = 0, ideographs = 0, inShadow = 0;
+            int runEnd = 0, runLength = 0;
             for (int i = 0; i < text.Length; i++)
             {
                 char c = text[i];
                 if (c == ' ') spaces++;
                 if (c < 0x80) continue;
+
+                // 进入一段连续的非 ASCII 字符时算一次这段的长度，整段共用
+                if (i >= runEnd)
+                {
+                    runEnd = i;
+                    while (runEnd < text.Length && text[runEnd] >= 0x80) runEnd++;
+                    runLength = runEnd - i;
+                }
 
                 nonAscii++;
                 if (IsKana(c)) kana++;
@@ -141,7 +150,7 @@ namespace SuixinNotepad.Core
                     ideographs++;
                     if (koreanShadow != null && koreanShadow.Contains(c)) inShadow++;
                 }
-                if (IsTypical(encoding.Family, c, text, i)) good++;
+                if (IsTypical(encoding.Family, c, runLength)) good++;
             }
             if (nonAscii == 0) return 1;
             double score = (double)good / nonAscii;
@@ -166,7 +175,8 @@ namespace SuixinNotepad.Core
             return score;
         }
 
-        private static bool IsTypical(EncodingFamily family, char c, string text, int index)
+        /// <param name="runLength">c 所在的连续非 ASCII 字符段的长度。</param>
+        private static bool IsTypical(EncodingFamily family, char c, int runLength)
         {
             switch (family)
             {
@@ -176,18 +186,10 @@ namespace SuixinNotepad.Core
                 case EncodingFamily.Korean: return IsHangul(c) || IsCjkPunctuation(c);
                 case EncodingFamily.Latin:
                     // 拉丁字母文字里带音调的字母零散出现在 ASCII 字母之间；连续一长串说明是别的文字被误解码
-                    return (char.IsLetter(c) || char.IsPunctuation(c) || char.IsSymbol(c) || c == '\u00A0') && NonAsciiRunLength(text, index) <= 3;
+                    return (char.IsLetter(c) || char.IsPunctuation(c) || char.IsSymbol(c) || c == '\u00A0') && runLength <= 3;
                 case EncodingFamily.OtherSingleByte: return char.IsLetter(c) || char.IsPunctuation(c);
                 default: return true;
             }
-        }
-
-        private static int NonAsciiRunLength(string text, int index)
-        {
-            int start = index, end = index;
-            while (start > 0 && text[start - 1] >= 0x80) start--;
-            while (end + 1 < text.Length && text[end + 1] >= 0x80) end++;
-            return end - start + 1;
         }
 
         private static bool IsKana(char c) => c >= '\u3040' && c <= '\u30FF';

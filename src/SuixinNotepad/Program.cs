@@ -1,7 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -33,8 +34,7 @@ namespace SuixinNotepad
                 return;
             }
 
-            // 相对路径按本进程的当前目录解析后再交给已运行的实例
-            string[] files = args.Where(a => !string.IsNullOrWhiteSpace(a)).Select(Path.GetFullPath).ToArray();
+            string[] files = ParseFiles(args);
 
             using (SingleInstance? instance = SingleInstance.TryAcquire())
             {
@@ -45,22 +45,37 @@ namespace SuixinNotepad
                     return;
                 }
 
+                // 立即开始接收其他实例转交的文件，窗口就绪前先存起来。
+                // 否则启动时弹出的提示框没关之前，其他实例会等不到响应
+                var relay = new FileRelay();
+                instance.Listen(relay.Receive);
+
                 AppPaths paths = AppPaths.ForCurrentUser();
-                Directory.CreateDirectory(paths.DataRoot);
+                AppSettings settings;
+                SessionState session;
+                string? brokenSettings, brokenSession;
+                try
+                {
+                    Directory.CreateDirectory(paths.DataRoot);
+                    settings = JsonFile.LoadOrDefault(paths.SettingsFile, () => new AppSettings(), out brokenSettings);
+                    session = JsonFile.LoadOrDefault(paths.SessionFile, () => new SessionState(), out brokenSession);
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    // 用默认内容继续运行的话，退出时会覆盖用户原有的设置和标签页记录
+                    MessageBox.Show("无法读取配置：" + ex.Message + "\r\n\r\n请关闭占用该文件的程序后重新启动。", MainForm.AppName,
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
                 Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
                 Application.ThreadException += (s, e) => ReportCrash(paths, e.Exception);
                 AppDomain.CurrentDomain.UnhandledException += (s, e) => ReportCrash(paths, (Exception)e.ExceptionObject);
 
-                AppSettings settings = JsonFile.LoadOrDefault(paths.SettingsFile, () => new AppSettings(), out string? brokenSettings);
-                SessionState session = JsonFile.LoadOrDefault(paths.SessionFile, () => new SessionState(), out string? brokenSession);
-
                 using (var form = new MainForm(paths, settings, session, files))
                 {
-                    form.Load += (s, e) => instance.Listen(received =>
-                    {
-                        if (form.IsDisposed || !form.IsHandleCreated) return;
-                        form.BeginInvoke(new Action(() => form.OpenFromOtherInstance(received)));
-                    });
+                    form.Load += (s, e) => relay.Attach(form);
+                    form.FormClosed += (s, e) => relay.Detach();
                     form.Shown += (s, e) =>
                     {
                         foreach (string? broken in new[] { brokenSettings, brokenSession })
@@ -71,6 +86,88 @@ namespace SuixinNotepad
                         }
                     };
                     Application.Run(form);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 命令行中的文件按本进程的当前目录解析为完整路径，再交给窗口或已运行的实例。
+        /// 不是合法路径的参数（含非法字符、网址等）逐个告知用户后忽略。
+        /// </summary>
+        private static string[] ParseFiles(string[] args)
+        {
+            var files = new List<string>();
+            var invalid = new List<string>();
+            foreach (string arg in args)
+            {
+                if (string.IsNullOrWhiteSpace(arg)) continue;
+                try
+                {
+                    files.Add(Path.GetFullPath(arg));
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SecurityException)
+                {
+                    invalid.Add(arg);
+                }
+            }
+            if (invalid.Count > 0)
+            {
+                MessageBox.Show("以下参数不是有效的文件路径，已忽略：\r\n" + string.Join("\r\n", invalid), MainForm.AppName,
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            return files.ToArray();
+        }
+
+        /// <summary>把监听线程收到的文件列表交给窗口。窗口就绪前收到的先存起来，窗口关闭后收到的丢弃。</summary>
+        private sealed class FileRelay
+        {
+            private readonly object gate = new object();
+            private readonly List<string[]> pending = new List<string[]>();
+            private MainForm? target;
+
+            /// <summary>在监听线程上调用，不能抛出异常。</summary>
+            public void Receive(string[] files)
+            {
+                MainForm? form;
+                lock (gate)
+                {
+                    if (target == null)
+                    {
+                        pending.Add(files);
+                        return;
+                    }
+                    form = target;
+                }
+                Post(form, files);
+            }
+
+            /// <summary>窗口句柄已创建（Load 事件中调用），交付之前存下的文件。</summary>
+            public void Attach(MainForm form)
+            {
+                string[][] queued;
+                lock (gate)
+                {
+                    target = form;
+                    queued = pending.ToArray();
+                    pending.Clear();
+                }
+                foreach (string[] files in queued) Post(form, files);
+            }
+
+            public void Detach()
+            {
+                lock (gate) target = null;
+            }
+
+            private static void Post(MainForm form, string[] files)
+            {
+                try
+                {
+                    form.BeginInvoke(new Action(() => form.OpenFromOtherInstance(files)));
+                }
+                catch (InvalidOperationException)
+                {
+                    // 窗口正在关闭，句柄已经销毁
                 }
             }
         }

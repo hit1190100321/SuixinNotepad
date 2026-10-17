@@ -106,6 +106,23 @@ namespace SuixinNotepad.Tests
         }
 
         [Fact]
+        public void 清理时保留正在恢复的那份存档()
+        {
+            string note = temp.File("n.txt");
+            for (int i = 0; i < BackupStore.MaxCount + 1; i++)
+            {
+                store.Create(note, Bytes("v" + i));
+                now = now.AddMinutes(1);
+            }
+            BackupEntry oldest = store.List(note).Last();
+
+            Assert.Equal(0, store.Cleanup(note, oldest.BackupPath));
+            Assert.True(File.Exists(oldest.BackupPath));
+            Assert.Equal(1, store.Cleanup(note));
+            Assert.False(File.Exists(oldest.BackupPath));
+        }
+
+        [Fact]
         public void 迁移历史后旧路径无备份_新路径合并全部备份()
         {
             string oldPath = temp.File("old.txt");

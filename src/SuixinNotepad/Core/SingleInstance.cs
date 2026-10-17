@@ -64,7 +64,10 @@ namespace SuixinNotepad.Core
             }
         }
 
-        /// <summary>开始监听。收到的文件列表在后台线程回调，调用方负责切回界面线程。</summary>
+        /// <summary>
+        /// 开始监听。收到的文件列表在后台线程回调，调用方负责切回界面线程，且回调不能抛出异常：
+        /// 后台线程上未处理的异常会直接终止整个进程。
+        /// </summary>
         public void Listen(Action<string[]> onReceived)
         {
             listener = new Thread(() => ListenLoop(onReceived)) { IsBackground = true, Name = "SingleInstancePipe" };
@@ -75,18 +78,40 @@ namespace SuixinNotepad.Core
         {
             while (!disposed)
             {
-                using (var server = new NamedPipeServerStream(pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte))
+                NamedPipeServerStream server;
+                try
                 {
-                    server.WaitForConnection();
-                    if (disposed) return;
-                    using (var ms = new MemoryStream())
+                    server = new NamedPipeServerStream(pipeName, PipeDirection.In, 1, PipeTransmissionMode.Byte);
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    // 管道名被其他进程占用：无法再接收文件，其他实例会提示“没有响应”
+                    Trace.WriteLine("无法建立单实例管道：" + ex.Message);
+                    return;
+                }
+
+                string[] paths;
+                using (server)
+                {
+                    try
                     {
-                        server.CopyTo(ms);
-                        string text = Encoding.UTF8.GetString(ms.ToArray());
-                        string[] paths = text.Length == 0 ? new string[0] : text.Split('\n');
-                        onReceived(paths);
+                        server.WaitForConnection();
+                        if (disposed) return;
+                        using (var ms = new MemoryStream())
+                        {
+                            server.CopyTo(ms);
+                            string text = Encoding.UTF8.GetString(ms.ToArray());
+                            paths = text.Length == 0 ? new string[0] : text.Split('\n');
+                        }
+                    }
+                    catch (IOException ex)
+                    {
+                        // 对方中途断开：丢弃这一次请求，继续等待下一个
+                        Trace.WriteLine("接收其他实例的文件列表失败：" + ex.Message);
+                        continue;
                     }
                 }
+                onReceived(paths);
             }
         }
 

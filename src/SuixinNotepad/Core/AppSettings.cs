@@ -50,6 +50,24 @@ namespace SuixinNotepad.Core
         [OnDeserializing]
         private void OnDeserializing(StreamingContext context) => SetDefaults();
 
+        /// <summary>字段写成 null 或超出范围时按损坏处理，避免程序带着无法使用的设置启动。</summary>
+        [OnDeserialized]
+        private void OnDeserialized(StreamingContext context)
+        {
+            if (NotesFolder == null || FontName == null || UpdateSource == null || FindText == null || ReplaceText == null)
+                throw new SerializationException("设置文件中有字段为空。");
+            if (NotesFolder.Length == 0 || FontName.Length == 0)
+                throw new SerializationException("设置文件中缺少默认保存位置或字体。");
+            if (float.IsNaN(FontSize) || FontSize <= 0 || FontSize > MaxFontSize)
+                throw new SerializationException("设置文件中的字号无效：" + FontSize);
+        }
+
+        /// <summary>GDI+ 字体允许的最大字号（磅）。</summary>
+        public const float MaxFontSize = 1638f;
+
+        public const string DefaultFontName = "Consolas";
+        public const float DefaultFontSize = 11f;
+
         /// <summary>反序列化不调用构造函数，旧版本设置文件缺少的字段由此获得默认值。</summary>
         private void SetDefaults()
         {
@@ -58,8 +76,8 @@ namespace SuixinNotepad.Core
             AutoCleanup = true;
             WordWrap = true;
             ShowStatusBar = true;
-            FontName = "Consolas";
-            FontSize = 11f;
+            FontName = DefaultFontName;
+            FontSize = DefaultFontSize;
             FontStyle = 0;
             ZoomPercent = 100;
             WindowWidth = 0;

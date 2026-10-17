@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
 using System.Drawing;
 using System.Threading;
 using System.Windows.Forms;
@@ -74,6 +75,78 @@ namespace SuixinNotepad.Tests
                 Assert.Equal(3, line);
                 Assert.Equal(3, column);
                 Assert.Equal("de", editor.GetTextRange(4, 6));
+            });
+        }
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+
+        [Fact]
+        public void 从右往左选中时光标在选区开头()
+        {
+            OnSta(editor =>
+            {
+                editor.SetText("abc\nde\nfghij");
+                // EM_SETSEL：锚点在第 3 行第 3 列，光标停在第 2 行第 1 列
+                SendMessage(editor.Handle, 0x00B1, (IntPtr)9, (IntPtr)4);
+                editor.GetCaretLineColumn(out int line, out int column);
+                Assert.Equal(2, line);
+                Assert.Equal(1, column);
+
+                editor.Select(4, 5);
+                editor.GetCaretLineColumn(out line, out column);
+                Assert.Equal(3, line);
+                Assert.Equal(3, column);
+            });
+        }
+
+        [Fact]
+        public void 自动换行时行列仍按逻辑行计算()
+        {
+            OnSta(editor =>
+            {
+                editor.WrapLines = true;
+                string longLine = new string('x', 2000);
+                editor.SetText(longLine + "\nend");
+                editor.Select(1500, 0);
+                editor.GetCaretLineColumn(out int line, out int column);
+                Assert.Equal(1, line);
+                Assert.Equal(1501, column);
+
+                editor.Select(editor.TextLength, 0);
+                editor.GetCaretLineColumn(out line, out column);
+                Assert.Equal(2, line);
+                Assert.Equal(4, column);
+            });
+        }
+
+        [Fact]
+        public void 垂直制表符和替换字符原样保存()
+        {
+            OnSta(editor =>
+            {
+                const string text = "a\vb\uFFFDc\td\n\u00A0e";
+                Assert.True(NoteEditor.CanHold(text));
+                editor.SetText(text);
+                Assert.Equal(text, editor.GetText());
+                Assert.Equal(text, editor.GetTextRange(0, editor.TextLength));
+                Assert.Equal(text.Length, editor.TextLength);
+            });
+        }
+
+        [Theory]
+        [InlineData("\u2028")]
+        [InlineData("\u2029")]
+        [InlineData("\uFFFC")]
+        public void 编辑器会改写的字符能被识别(string special)
+        {
+            OnSta(editor =>
+            {
+                string text = "a" + special + "b";
+                Assert.False(NoteEditor.CanHold(text));
+                // 前提假设：写入控件后确实会被改写，否则就不必只读打开这类文件
+                editor.SetText(text);
+                Assert.NotEqual(text, editor.GetText());
             });
         }
 

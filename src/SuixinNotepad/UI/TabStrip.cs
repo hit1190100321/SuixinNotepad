@@ -30,7 +30,11 @@ namespace SuixinNotepad.UI
         public int To { get; }
     }
 
-    /// <summary>自绘标签栏：关闭按钮、中键关闭、拖动排序、滚轮横向滚动、“+”新建。</summary>
+    /// <summary>
+    /// 自绘标签栏：关闭按钮、中键关闭、拖动排序、滚轮横向滚动、“+”新建。
+    /// 点击标签只发出 TabClicked，选中哪个标签由使用方设置 SelectedIndex 决定，
+    /// 这样切换失败（文件打不开）时高亮仍停在实际显示的标签上。
+    /// </summary>
     internal sealed class TabStrip : Control
     {
         public sealed class Tab
@@ -73,7 +77,7 @@ namespace SuixinNotepad.UI
             Height = Dpi.Scale(34);
         }
 
-        public event EventHandler? SelectedIndexChanged;
+        public event EventHandler<TabIndexEventArgs>? TabClicked;
         public event EventHandler<TabIndexEventArgs>? CloseRequested;
         public event EventHandler? NewTabRequested;
         public event EventHandler<TabMovedEventArgs>? TabMoved;
@@ -94,7 +98,6 @@ namespace SuixinNotepad.UI
                 LayoutTabs();
                 EnsureVisible(value);
                 Invalidate();
-                SelectedIndexChanged?.Invoke(this, EventArgs.Empty);
             }
         }
 
@@ -102,15 +105,25 @@ namespace SuixinNotepad.UI
         {
             tabs.Insert(index, tab);
             if (selectedIndex >= index) selectedIndex++;
+            CancelDrag();
             RefreshTabs();
         }
 
+        /// <summary>移除标签。移除的正是选中的标签时变为未选中，由使用方选定下一个。</summary>
         public void RemoveAt(int index)
         {
             tabs.RemoveAt(index);
-            if (selectedIndex > index || selectedIndex >= tabs.Count) selectedIndex--;
+            if (selectedIndex == index) selectedIndex = -1;
+            else if (selectedIndex > index) selectedIndex--;
             hoverIndex = -1;
+            CancelDrag();
             RefreshTabs();
+        }
+
+        private void CancelDrag()
+        {
+            dragIndex = -1;
+            dragging = false;
         }
 
         /// <summary>修改标签内容后调用以重绘。</summary>
@@ -323,7 +336,7 @@ namespace SuixinNotepad.UI
         {
             base.OnMouseMove(e);
 
-            if (dragIndex >= 0 && e.Button == MouseButtons.Left)
+            if (dragIndex >= 0 && dragIndex < tabs.Count && e.Button == MouseButtons.Left)
             {
                 if (!dragging && Math.Abs(e.X - dragStart.X) > SystemInformation.DragSize.Width) dragging = true;
                 if (dragging)
@@ -378,6 +391,8 @@ namespace SuixinNotepad.UI
         protected override void OnMouseDown(MouseEventArgs e)
         {
             base.OnMouseDown(e);
+            // 上一次按下后若弹出过提示框，MouseUp 没有送到这里，拖动状态要在新的按下时清掉
+            CancelDrag();
             int hit = HitTab(e.Location);
             if (e.Button == MouseButtons.Left)
             {
@@ -388,10 +403,10 @@ namespace SuixinNotepad.UI
                 }
                 if (hit >= 0 && !CloseRect(tabRects[hit]).Contains(e.Location))
                 {
-                    SelectedIndex = hit;
                     dragIndex = hit;
                     dragStart = e.Location;
                     dragging = false;
+                    TabClicked?.Invoke(this, new TabIndexEventArgs(hit, e.Location));
                 }
             }
             else if (e.Button == MouseButtons.Right && hit >= 0)
@@ -408,9 +423,9 @@ namespace SuixinNotepad.UI
                 CloseRequested?.Invoke(this, new TabIndexEventArgs(hit, e.Location));
             else if (e.Button == MouseButtons.Middle && hit >= 0)
                 CloseRequested?.Invoke(this, new TabIndexEventArgs(hit, e.Location));
-            dragIndex = -1;
-            dragging = false;
+            CancelDrag();
         }
+
 
         protected override void OnMouseDoubleClick(MouseEventArgs e)
         {

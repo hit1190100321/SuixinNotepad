@@ -3,6 +3,18 @@ using SuixinNotepad.Core;
 
 namespace SuixinNotepad.UI
 {
+    /// <summary>文档内容无法原样写回文件的原因。</summary>
+    internal enum LossReason
+    {
+        None,
+
+        /// <summary>文件中有无法按当前编码识别的字节。</summary>
+        Undecodable,
+
+        /// <summary>文件中有编辑器无法原样保留的字符（见 NoteEditor.CanHold）。</summary>
+        UnsupportedChars,
+    }
+
     /// <summary>
     /// 一个标签页对应的记事本。每个记事本始终有一个确定的文件路径：
     /// 用户指定的位置，或默认文件夹中由程序命名的文件（Untitled）。
@@ -15,7 +27,7 @@ namespace SuixinNotepad.UI
 
         public NoteDocument(string path, bool untitled)
         {
-            Path = System.IO.Path.GetFullPath(path);
+            Path = FilePath.Normalize(path);
             Untitled = untitled;
             Title = untitled ? UntitledTitle : System.IO.Path.GetFileName(Path);
         }
@@ -32,10 +44,12 @@ namespace SuixinNotepad.UI
         public bool EncodingForced { get; set; }
 
         /// <summary>
-        /// 文件中有无法按当前编码识别的字节。写回会破坏原文件，因此编辑器只读，
+        /// 编辑器中的文本写回后会与原文件不同。写回会破坏原文件，因此编辑器只读，
         /// 只能换编码重新打开或另存为新文件。
         /// </summary>
-        public bool Lossy { get; set; }
+        public LossReason LossReason { get; set; }
+
+        public bool Lossy => LossReason != LossReason.None;
 
         /// <summary>最近一次读写后文件在磁盘上的状态；文件尚未创建时为 null。</summary>
         public FileStamp? DiskStamp { get; set; }

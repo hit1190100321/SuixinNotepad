@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using SuixinNotepad.Core;
 
@@ -32,6 +33,7 @@ namespace SuixinNotepad.UI
         private readonly ToolStripDropDownButton lineEndingButton = new ToolStripDropDownButton { ShowDropDownArrow = false, AutoSize = false, Size = Dpi.Scale(120, StatusHeight) };
         private readonly ToolStripDropDownButton encodingButton = new ToolStripDropDownButton { ShowDropDownArrow = false, AutoSize = false, Size = Dpi.Scale(170, StatusHeight) };
         private readonly Timer autosaveTimer = new Timer { Interval = 1500 };
+        private readonly Timer retryTimer = new Timer { Interval = 10000 };
         private readonly Timer statusTimer = new Timer { Interval = 120 };
         private readonly Timer messageTimer = new Timer { Interval = 5000 };
         private readonly ContextMenuStrip editorMenu = new ContextMenuStrip();
@@ -45,8 +47,9 @@ namespace SuixinNotepad.UI
         private string lastSessionJson = "";
         private UpdateInfo? pendingUpdate;
         private bool suppressTextEvents;
-        private bool checkingExternalChanges;
+        private bool askingExternalChange;
         private bool shutdownDone;
+        private bool installingUpdate;
         private FormWindowState lastVisibleState = FormWindowState.Normal;
 
         private ToolStripMenuItem wordWrapItem = null!;
@@ -56,6 +59,7 @@ namespace SuixinNotepad.UI
         {
             this.paths = paths;
             this.settings = settings;
+            settings.ZoomPercent = Math.Max(NoteEditor.MinZoom, Math.Min(NoteEditor.MaxZoom, settings.ZoomPercent));
             backups = new BackupStore(paths.BackupRoot);
             editorFont = CreateEditorFont(settings);
 
@@ -87,7 +91,7 @@ namespace SuixinNotepad.UI
             MainMenuStrip = menu;
             status.Visible = settings.ShowStatusBar;
 
-            tabStrip.SelectedIndexChanged += (s, e) => { if (tabStrip.SelectedIndex >= 0) ActivateDocument(docs[tabStrip.SelectedIndex]); };
+            tabStrip.TabClicked += (s, e) => ActivateDocument(docs[e.Index]);
             tabStrip.CloseRequested += (s, e) => CloseTab(e.Index);
             tabStrip.NewTabRequested += (s, e) => NewTab();
             tabStrip.TabMoved += (s, e) => MoveDocument(e.From, e.To);
@@ -104,13 +108,15 @@ namespace SuixinNotepad.UI
             }
 
             autosaveTimer.Tick += (s, e) => AutosaveTick();
+            retryTimer.Tick += (s, e) => AutosaveTick();
             statusTimer.Tick += (s, e) => { statusTimer.Stop(); UpdateStatus(); };
             messageTimer.Tick += (s, e) => { messageTimer.Stop(); messageLabel.Text = ""; };
 
             RestoreWindowBounds();
-            RestoreSession(session);
+            // 先建立上次的标签，再打开命令行中的文件；都没有激活任何标签时才激活上次的活动标签
+            int preferred = RestoreSession(session);
             OpenFiles(startupFiles);
-            if (docs.Count == 0) NewTab();
+            if (active == null) ActivateNearest(preferred);
         }
 
         private static ToolStripStatusLabel StatusCell(int width) => new ToolStripStatusLabel
@@ -124,12 +130,21 @@ namespace SuixinNotepad.UI
 
         private static Font CreateEditorFont(AppSettings s)
         {
-            var font = new Font(s.FontName, s.FontSize > 0 ? s.FontSize : 11f, (FontStyle)s.FontStyle);
-            // 字体已被卸载时 GDI+ 会替换成其他字体，此时回退到默认字体并记入设置
-            if (!string.Equals(font.Name, s.FontName, StringComparison.OrdinalIgnoreCase))
+            Font? font;
+            try
             {
-                font.Dispose();
-                font = new Font("Consolas", 11f);
+                font = new Font(s.FontName, s.FontSize, (FontStyle)s.FontStyle);
+            }
+            catch (ArgumentException)
+            {
+                // 字体不支持设置中的字形（如只有粗体的字体选了常规）
+                font = null;
+            }
+            // 字体已被卸载时 GDI+ 会替换成其他字体，此时回退到默认字体并记入设置
+            if (font == null || !string.Equals(font.Name, s.FontName, StringComparison.OrdinalIgnoreCase))
+            {
+                font?.Dispose();
+                font = new Font(AppSettings.DefaultFontName, AppSettings.DefaultFontSize);
                 s.FontName = font.Name;
                 s.FontSize = font.SizeInPoints;
                 s.FontStyle = 0;
@@ -177,7 +192,7 @@ namespace SuixinNotepad.UI
             var redo = Item("重做(&R)", (s, e) => Editor?.Redo(), Keys.None, "Ctrl+Y");
             var cut = Item("剪切(&T)", (s, e) => Editor?.Cut(), Keys.None, "Ctrl+X");
             var copy = Item("复制(&C)", (s, e) => Editor?.Copy(), Keys.None, "Ctrl+C");
-            var paste = Item("粘贴(&P)", (s, e) => Editor?.Paste(), Keys.None, "Ctrl+V");
+            var paste = Item("粘贴(&P)", (s, e) => Editor?.PastePlainText(), Keys.None, "Ctrl+V");
             var delete = Item("删除(&L)", (s, e) => Editor?.ReplaceSelection(""), Keys.None, "Del");
             var search = Item("使用 Bing 搜索(&S)...", (s, e) => SearchWithBing(), Keys.Control | Keys.E);
             var edit = new ToolStripMenuItem("编辑(&E)");
@@ -204,7 +219,7 @@ namespace SuixinNotepad.UI
                 undo.Enabled = ed != null && ed.CanUndo;
                 redo.Enabled = ed != null && ed.CanRedo;
                 cut.Enabled = copy.Enabled = delete.Enabled = search.Enabled = hasSelection;
-                paste.Enabled = ed != null && Clipboard.ContainsText();
+                paste.Enabled = ed != null && !ed.ReadOnly && ClipboardHasText();
             };
             // 菜单关闭后恢复可用，保证带快捷键的菜单项始终响应
             edit.DropDownClosed += (s, e) =>
@@ -301,7 +316,7 @@ namespace SuixinNotepad.UI
             var undo = Item("撤消(&U)", (s, e) => Editor?.Undo());
             var cut = Item("剪切(&T)", (s, e) => Editor?.Cut());
             var copy = Item("复制(&C)", (s, e) => Editor?.Copy());
-            var paste = Item("粘贴(&P)", (s, e) => Editor?.Paste());
+            var paste = Item("粘贴(&P)", (s, e) => Editor?.PastePlainText());
             var delete = Item("删除(&D)", (s, e) => Editor?.ReplaceSelection(""));
             var search = Item("使用 Bing 搜索(&S)", (s, e) => SearchWithBing());
             editorMenu.Items.AddRange(new ToolStripItem[]
@@ -320,7 +335,7 @@ namespace SuixinNotepad.UI
                 bool hasSelection = ed != null && ed.SelectionLength > 0;
                 undo.Enabled = ed != null && ed.CanUndo;
                 cut.Enabled = copy.Enabled = delete.Enabled = search.Enabled = hasSelection;
-                paste.Enabled = ed != null && Clipboard.ContainsText();
+                paste.Enabled = ed != null && !ed.ReadOnly && ClipboardHasText();
             };
 
             var closeRight = Item("关闭右侧标签页", (s, e) => CloseTabsWhere(i => i > tabMenuIndex));
@@ -331,12 +346,38 @@ namespace SuixinNotepad.UI
                 closeRight,
                 new ToolStripSeparator(),
                 Item("重命名...", (s, e) => Rename(TabMenuDocument)),
-                Item("复制完整路径", (s, e) => { if (TabMenuDocument != null) Clipboard.SetText(TabMenuDocument.Path); }),
+                Item("复制完整路径", (s, e) => CopyPath(TabMenuDocument)),
                 Item("打开所在文件夹", (s, e) => OpenContainingFolder(TabMenuDocument)),
                 new ToolStripSeparator(),
                 Item("存档历史...", (s, e) => ShowHistory(TabMenuDocument)),
             });
             tabMenu.Opening += (s, e) => closeRight.Enabled = tabMenuIndex < docs.Count - 1;
+        }
+
+        private void CopyPath(NoteDocument? doc)
+        {
+            if (doc == null) return;
+            try
+            {
+                Clipboard.SetText(doc.Path);
+            }
+            catch (ExternalException)
+            {
+                ShowMessage("剪贴板正被其他程序占用，请稍后再试");
+            }
+        }
+
+        /// <summary>剪贴板中是否有文本。剪贴板被其他程序占用时当作没有。</summary>
+        private static bool ClipboardHasText()
+        {
+            try
+            {
+                return Clipboard.ContainsText();
+            }
+            catch (ExternalException)
+            {
+                return false;
+            }
         }
 
         private NoteDocument? TabMenuDocument => tabMenuIndex >= 0 && tabMenuIndex < docs.Count ? docs[tabMenuIndex] : null;
@@ -473,6 +514,7 @@ namespace SuixinNotepad.UI
             if (disposing)
             {
                 autosaveTimer.Dispose();
+                retryTimer.Dispose();
                 statusTimer.Dispose();
                 messageTimer.Dispose();
                 editorFont.Dispose();

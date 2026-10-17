@@ -1,24 +1,44 @@
 using System;
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Printing;
 using System.Windows.Forms;
 
 namespace SuixinNotepad.UI
 {
-    /// <summary>打印纯文本：自动折行，页眉为文件名，页脚为页码。</summary>
+    /// <summary>打印纯文本：自动折行，页眉为文件名，页脚为页码。没有可用打印机或打印失败时提示用户。</summary>
     internal sealed class TextPrinter
     {
         private readonly PageSettings pageSettings = new PageSettings { Margins = new Margins(75, 75, 100, 100) };
 
         public void PageSetup(IWin32Window owner)
         {
-            using (var dialog = new PageSetupDialog { PageSettings = pageSettings, EnableMetric = true })
+            try
             {
-                dialog.ShowDialog(owner);
+                using (var dialog = new PageSetupDialog { PageSettings = pageSettings, EnableMetric = true })
+                {
+                    dialog.ShowDialog(owner);
+                }
+            }
+            catch (Exception ex) when (ex is InvalidPrinterException || ex is Win32Exception)
+            {
+                MessageBox.Show(owner, "无法打开页面设置：" + ex.Message, MainForm.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
 
         public void Print(IWin32Window owner, string text, Font font, string title)
+        {
+            try
+            {
+                PrintText(owner, text, font, title);
+            }
+            catch (Exception ex) when (ex is InvalidPrinterException || ex is Win32Exception)
+            {
+                MessageBox.Show(owner, "无法打印：" + ex.Message, MainForm.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private void PrintText(IWin32Window owner, string text, Font font, string title)
         {
             using (var document = new PrintDocument { DocumentName = title, DefaultPageSettings = (PageSettings)pageSettings.Clone() })
             using (var dialog = new PrintDialog { Document = document, UseEXDialog = true, AllowSomePages = false })

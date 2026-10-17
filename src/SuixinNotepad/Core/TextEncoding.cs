@@ -75,6 +75,10 @@ namespace SuixinNotepad.Core
         public static readonly TextEncoding Utf32LE = new TextEncoding("UTF-32 LE", "UTF-32 LE", 12000, true, EncodingFamily.Unicode);
         public static readonly TextEncoding Utf32BE = new TextEncoding("UTF-32 BE", "UTF-32 BE", 12001, true, EncodingFamily.Unicode);
 
+        /// <summary>自动识别出的无 BOM UTF-16 文件，保存时同样不写 BOM。不在菜单中列出。</summary>
+        public static readonly TextEncoding Utf16LENoBom = new TextEncoding("UTF-16 LE（无 BOM）", "UTF-16 LE（无 BOM）", 1200, false, EncodingFamily.Unicode);
+        public static readonly TextEncoding Utf16BENoBom = new TextEncoding("UTF-16 BE（无 BOM）", "UTF-16 BE（无 BOM）", 1201, false, EncodingFamily.Unicode);
+
         public static readonly TextEncoding Gb18030 = new TextEncoding("GB18030", "简体中文 (GB18030)", 54936, false, EncodingFamily.SimplifiedChinese);
         public static readonly TextEncoding Gbk = new TextEncoding("GBK", "简体中文 (GBK)", 936, false, EncodingFamily.SimplifiedChinese);
         public static readonly TextEncoding Big5 = new TextEncoding("Big5", "繁体中文 (Big5)", 950, false, EncodingFamily.TraditionalChinese);
@@ -103,7 +107,8 @@ namespace SuixinNotepad.Core
             new[] { Windows1252, Windows1250, Windows1251, Koi8R, Windows1253, Windows1254, Windows1255, Windows1256, Windows1257, Windows1258, Windows874 },
         };
 
-        public static readonly IReadOnlyList<TextEncoding> All = Groups.SelectMany(g => g).ToArray();
+        /// <summary>全部编码：菜单中的编码，加上只由自动识别产生的编码。</summary>
+        public static readonly IReadOnlyList<TextEncoding> All = Groups.SelectMany(g => g).Concat(new[] { Utf16LENoBom, Utf16BENoBom }).ToArray();
 
         /// <summary>按名称查找，找不到时返回 null（会话文件来自旧版本或被修改）。</summary>
         public static TextEncoding? FromName(string? name) =>

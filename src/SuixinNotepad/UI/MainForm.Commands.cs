@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.Globalization;
@@ -20,7 +21,20 @@ namespace SuixinNotepad.UI
             if (editor == null || editor.SelectionLength == 0) return;
             string query = editor.GetTextRange(editor.SelectionStart, editor.SelectionStart + Math.Min(editor.SelectionLength, 500)).Trim();
             if (query.Length == 0) return;
-            Process.Start("https://www.bing.com/search?q=" + Uri.EscapeDataString(query));
+            StartProcess(new ProcessStartInfo("https://www.bing.com/search?q=" + Uri.EscapeDataString(query)) { UseShellExecute = true });
+        }
+
+        /// <summary>启动外部程序（浏览器、资源管理器）。启动失败时在状态栏提示。</summary>
+        private void StartProcess(ProcessStartInfo info)
+        {
+            try
+            {
+                Process.Start(info);
+            }
+            catch (Win32Exception ex)
+            {
+                ShowMessage("无法打开“" + info.FileName + "”：" + ex.Message);
+            }
         }
 
         private static string DateTimeStamp()
@@ -119,6 +133,12 @@ namespace SuixinNotepad.UI
         {
             NoteEditor? editor = Editor;
             if (editor == null || options.Find.Length == 0) return;
+            if (editor.ReadOnly)
+            {
+                Remember(options);
+                ShowMessage(ReadOnlyHint(active!));
+                return;
+            }
             string selected = editor.GetTextRange(editor.SelectionStart, editor.SelectionStart + editor.SelectionLength);
             if (string.Equals(selected, options.Find, options.Comparison))
                 editor.ReplaceSelection(options.Replace);
@@ -132,7 +152,7 @@ namespace SuixinNotepad.UI
             Remember(options);
             if (editor.ReadOnly)
             {
-                ShowMessage(ReadOnlyHint);
+                ShowMessage(ReadOnlyHint(active!));
                 return;
             }
             string result = TextSearch.ReplaceAll(editor.GetText(), options, out int count);
@@ -259,12 +279,13 @@ namespace SuixinNotepad.UI
                 return;
             }
 
+            FileStamp? stamp = FileStamp.Of(doc.Path);
             DecodedText content;
             try
             {
                 content = TextFile.Load(doc.Path, encoding);
             }
-            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            catch (Exception ex) when (IsFileError(ex))
             {
                 MessageBox.Show(this, "无法打开“" + doc.Path + "”：" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
@@ -272,11 +293,13 @@ namespace SuixinNotepad.UI
 
             doc.Encoding = encoding;
             doc.EncodingForced = true;
-            ShowDecoded(doc, content);
+            ShowDecoded(doc, content, stamp);
             if (content.Encoding != encoding)
                 ShowMessage("文件开头的标记表明它是 " + content.Encoding.Name + "，已按 " + content.Encoding.Name + " 打开");
-            else if (doc.Lossy)
+            else if (doc.LossReason == LossReason.Undecodable)
                 ShowMessage("按 " + encoding.Name + " 无法完整识别这个文件，已只读打开");
+            else if (doc.LossReason == LossReason.UnsupportedChars)
+                ShowMessage("文件中有本程序无法原样保留的特殊字符，已只读打开");
             SaveSession();
         }
 
@@ -303,9 +326,9 @@ namespace SuixinNotepad.UI
         {
             if (doc == null) return;
             if (File.Exists(doc.Path))
-                Process.Start("explorer.exe", "/select,\"" + doc.Path + "\"");
+                StartProcess(new ProcessStartInfo("explorer.exe", "/select,\"" + doc.Path + "\""));
             else
-                Process.Start("explorer.exe", "\"" + Path.GetDirectoryName(doc.Path) + "\"");
+                StartProcess(new ProcessStartInfo("explorer.exe", "\"" + Path.GetDirectoryName(doc.Path) + "\""));
         }
 
         private void ShowSettings()
@@ -337,9 +360,7 @@ namespace SuixinNotepad.UI
             {
                 info = await Task.Run(() => UpdateService.Check(source));
             }
-            catch (Exception ex) when (ex is IOException || ex is System.Net.WebException || ex is UnauthorizedAccessException ||
-                                       ex is System.Runtime.Serialization.SerializationException || ex is ArgumentException ||
-                                       ex is NotSupportedException || ex is UriFormatException)
+            catch (UpdateException ex)
             {
                 if (manual) MessageBox.Show(this, "检查更新失败：" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
@@ -363,26 +384,44 @@ namespace SuixinNotepad.UI
         /// <summary>下载并校验安装包，保存全部内容后启动安装程序并退出；安装完成后程序自动重新打开。</summary>
         private async void InstallUpdate(UpdateInfo info)
         {
+            if (installingUpdate) return;
             var answer = MessageBox.Show(this, "发现新版本 " + info.Version + "（当前 " + UpdateService.CurrentVersion + "）。\r\n\r\n现在更新吗？更新完成后会自动重新打开。",
                 AppName, MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-            if (answer != DialogResult.Yes) return;
+            if (answer != DialogResult.Yes || installingUpdate) return;
 
-            ShowMessage("正在下载更新…");
-            string setup;
+            installingUpdate = true;
             try
             {
-                setup = await Task.Run(() => UpdateService.Download(info, paths.UpdateDownloadDir));
-            }
-            catch (Exception ex) when (ex is IOException || ex is System.Net.WebException || ex is UnauthorizedAccessException)
-            {
-                MessageBox.Show(this, "下载更新失败：" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
+                ShowMessage("正在下载更新…");
+                string setup;
+                try
+                {
+                    setup = await Task.Run(() => UpdateService.Download(info, paths.UpdateDownloadDir));
+                }
+                catch (UpdateException ex)
+                {
+                    MessageBox.Show(this, "下载更新失败：" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
 
-            if (!Shutdown()) return;
-            shutdownDone = true;
-            Process.Start(new ProcessStartInfo(setup, "/SILENT /SUPPRESSMSGBOXES /NORESTART") { UseShellExecute = true });
-            Close();
+                if (!Shutdown()) return;
+                try
+                {
+                    Process.Start(new ProcessStartInfo(setup, "/SILENT /SUPPRESSMSGBOXES /NORESTART") { UseShellExecute = true });
+                }
+                catch (Win32Exception ex)
+                {
+                    // 安装程序没有启动，程序继续运行；内容已经写回，之后关闭窗口仍会正常保存
+                    MessageBox.Show(this, "无法启动安装程序：" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                shutdownDone = true;
+                Close();
+            }
+            finally
+            {
+                installingUpdate = false;
+            }
         }
 
         #endregion

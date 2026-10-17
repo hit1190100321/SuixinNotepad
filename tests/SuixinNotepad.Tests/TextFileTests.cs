@@ -1,5 +1,7 @@
+using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using SuixinNotepad.Core;
 using Xunit;
@@ -95,6 +97,63 @@ namespace SuixinNotepad.Tests
             DecodedText decoded = TextFile.Decode(bytes, TextEncoding.Big5);
             Assert.Same(TextEncoding.Utf8Bom, decoded.Encoding);
             Assert.Equal("中文", decoded.Text);
+        }
+
+        [Theory]
+        [InlineData("a\r\nb\nc", true)]
+        [InlineData("a\r\nb\rc", true)]
+        [InlineData("a\r\nb\r\nc", false)]
+        [InlineData("abc", false)]
+        public void 混用换行符被标记(string raw, bool mixed)
+        {
+            DecodedText decoded = TextFile.Decode(Encoding.UTF8.GetBytes(raw));
+            Assert.Equal(mixed, decoded.MixedLineEndings);
+        }
+
+        [Fact]
+        public void 超过大小上限的文件拒绝读取()
+        {
+            using (var temp = new TempDir())
+            {
+                string path = temp.File("big.log");
+                using (var fs = new FileStream(path, FileMode.CreateNew)) fs.SetLength(TextFile.MaxFileSize + 1);
+                Assert.Throws<FileTooLargeException>(() => TextFile.ReadBytes(path));
+            }
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool CreateHardLink(string fileName, string existingFileName, IntPtr security);
+
+        [Fact]
+        public void 写入有硬链接的文件时链接保持()
+        {
+            using (var temp = new TempDir())
+            {
+                string a = temp.File("a.txt");
+                string b = temp.File("b.txt");
+                File.WriteAllText(a, "old");
+                Assert.True(CreateHardLink(b, a, IntPtr.Zero));
+                Assert.True(FilePath.SameFile(a, b));
+
+                TextFile.WriteAtomic(a, Encoding.UTF8.GetBytes("new"));
+
+                Assert.Equal("new", File.ReadAllText(b));
+                Assert.True(FilePath.SameFile(a, b));
+                Assert.Equal(2, Directory.GetFiles(temp.Path).Length);
+            }
+        }
+
+        [Fact]
+        public void 不同写法的同一路径视为同一文件()
+        {
+            using (var temp = new TempDir())
+            {
+                string a = temp.File("Note.txt");
+                File.WriteAllText(a, "x");
+                Assert.True(FilePath.SameFile(a, temp.File("note.TXT")));
+                Assert.True(FilePath.SameFile(a, Path.Combine(temp.Path, "sub", "..", "Note.txt")));
+                Assert.False(FilePath.SameFile(a, temp.File("other.txt")));
+            }
         }
 
         [Fact]

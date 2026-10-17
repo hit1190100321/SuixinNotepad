@@ -76,12 +76,28 @@ namespace SuixinNotepad.Tests
         }
 
         [Theory]
-        [InlineData(1200, "UTF-16 LE")]
-        [InlineData(1201, "UTF-16 BE")]
-        public void 识别无BOM的UTF16(int codePage, string expected)
+        [InlineData(1200, "UTF-16 LE（无 BOM）")]
+        [InlineData(1201, "UTF-16 BE（无 BOM）")]
+        public void 识别无BOM的UTF16且保存时仍不加BOM(int codePage, string expected)
         {
             byte[] bytes = Encoding.GetEncoding(codePage).GetBytes("hello 世界\r\nsecond line\r\n");
-            Assert.Equal(expected, EncodingDetector.Detect(bytes, TextEncoding.Gb18030).Name);
+            DecodedText decoded = TextFile.Decode(bytes);
+            Assert.Equal(expected, decoded.Encoding.Name);
+            Assert.Equal(bytes, TextFile.Encode(decoded.Text, decoded.Encoding, decoded.LineEnding));
+        }
+
+        [Fact]
+        public void 很长的单行中文识别耗时随长度线性增长()
+        {
+            // 曾经每个字符都要重新扫描所在的整段非 ASCII 字符，80 KB 单行要 1.5 秒
+            EncodingDetector.Detect(Encoding.GetEncoding(936).GetBytes(Simplified), TextEncoding.Gb18030);
+            var sb = new StringBuilder();
+            while (sb.Length < 40000) sb.Append("中华人民共和国国家标准信息交换用汉字编码字符集");
+            byte[] bytes = Encoding.GetEncoding(936).GetBytes(sb.ToString());
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            Assert.Same(TextEncoding.Gb18030, EncodingDetector.Detect(bytes, TextEncoding.Gb18030));
+            Assert.True(watch.ElapsedMilliseconds < 300, "识别耗时 " + watch.ElapsedMilliseconds + " ms");
         }
 
         [Fact]

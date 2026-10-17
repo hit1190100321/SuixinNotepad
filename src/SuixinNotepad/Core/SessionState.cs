@@ -9,6 +9,21 @@ namespace SuixinNotepad.Core
     {
         [DataMember] public List<SessionTab> Tabs { get; set; } = new List<SessionTab>();
         [DataMember] public int ActiveIndex { get; set; }
+
+        /// <summary>反序列化不调用构造函数，文件缺少的字段由此获得默认值。</summary>
+        [OnDeserializing]
+        private void OnDeserializing(StreamingContext context)
+        {
+            Tabs = new List<SessionTab>();
+            ActiveIndex = 0;
+        }
+
+        /// <summary>字段写成 null 等无法使用的内容时按损坏处理。</summary>
+        [OnDeserialized]
+        private void OnDeserialized(StreamingContext context)
+        {
+            if (Tabs == null || Tabs.Contains(null!)) throw new SerializationException("会话文件中的标签页列表无效。");
+        }
     }
 
     [DataContract]
@@ -30,6 +45,20 @@ namespace SuixinNotepad.Core
 
         /// <summary>反序列化不调用构造函数，旧版本会话文件缺少的字段由此获得默认值。</summary>
         [OnDeserializing]
-        private void OnDeserializing(StreamingContext context) => Encoding = "";
+        private void OnDeserializing(StreamingContext context)
+        {
+            Path = "";
+            Untitled = false;
+            Title = "";
+            SelectionStart = 0;
+            SelectionLength = 0;
+            Encoding = "";
+        }
+
+        [OnDeserialized]
+        private void OnDeserialized(StreamingContext context)
+        {
+            if (Path == null || Title == null || Encoding == null) throw new SerializationException("会话文件中的标签页记录无效。");
+        }
     }
 }
