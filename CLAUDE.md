@@ -25,6 +25,7 @@ dotnet test tests\SuixinNotepad.Tests                      # 只跑测试
   - `BackupStore`：存档。每个文件一个目录，目录名为“文件名_完整路径 SHA256 前 16 位”，目录内 `source.txt` 记录原路径；存档文件名是保存时间。`Create` 遇到与最新存档相同的内容返回 false。`Cleanup` 按一年、50 份清理。`MoveHistory` 用于另存为和重命名。
   - `AppSettings` / `SessionState`：设置和会话，存于 `%LOCALAPPDATA%\SuixinNotepad`。新增字段的默认值写在 `[OnDeserializing]` 方法里，旧文件缺字段时才能拿到正确默认值。
   - `UpdateService`：读取 `latest.json`（网址或文件夹），比较版本，下载并校验 SHA-256。
+  - `DefaultApp`：.txt 默认打开程序。Windows 不允许程序直接改默认程序，只能用 `SHOpenWithDialog` 弹出系统对话框由用户确认；对话框关闭时总返回成功，结果用 `AssocQueryString` 重新查询。安装包用 `--choose-default-txt` 参数调用它。
   - `SingleInstance`：互斥体加命名管道，第二个进程把文件路径转交给已运行的窗口。
 - `UI/`：
   - `NoteEditor`：继承 RichTextBox，窗口类换成 RICHEDIT50W 纯文本模式。对外文本统一用 `\n` 换行，下标与控件一致；读写文本一律用 `GetText`/`SetText`/`ReplaceSelection`，不要用 `Text` 属性。富文本格式快捷键在 `ProcessCmdKey` 中屏蔽。中文字形通过字体关联处理：所选字体自带中文字形时跟随所选字体，否则用微软雅黑。
@@ -39,6 +40,7 @@ dotnet test tests\SuixinNotepad.Tests                      # 只跑测试
 - 手动保存 = 写回文件 + 存档（自动备份开启时）+ 清理（自动清理开启时）。自动保存只写回文件。
 - 恢复存档前先手动保存当前内容，恢复操作可撤消。
 - 读写文件出错时，标签显示红色并保留内容，不静默丢弃。
+- 安装包总是注册打开方式、ProgId 和“默认应用”功能（`Software\SuixinNotepad\Capabilities`），默认打开程序只经用户在系统对话框中确认后改变。
 
 ## 规范
 

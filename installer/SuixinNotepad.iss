@@ -47,7 +47,7 @@ Name: "chs"; MessagesFile: "ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; Flags: unchecked
-Name: "openwith"; Description: "加入 .txt、.md 文件的“打开方式”列表"
+Name: "defaulttxt"; Description: "设为 .txt 文件的默认打开程序"
 
 [Files]
 Source: "{#SourceDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
@@ -59,25 +59,36 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 
 [Registry]
 ; 应用程序注册：让“打开方式”对话框能找到本程序并显示中文名称
-Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{#AppName}"; Flags: uninsdeletekey; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".txt"; ValueData: ""; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".log"; ValueData: ""; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".md"; ValueData: ""; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".markdown"; ValueData: ""; Tasks: openwith
-; 文件类型：.txt、.md 右键“打开方式”中出现本程序，但不抢占默认打开程序
-Root: HKA; Subkey: "Software\Classes\{#ProgId}"; ValueType: string; ValueData: "文本文档"; Flags: uninsdeletekey; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\{#ProgId}\DefaultIcon"; ValueType: string; ValueData: """{app}\{#AppExe}"",0"; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\{#ProgId}\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\.txt\OpenWithProgids"; ValueType: string; ValueName: "{#ProgId}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\.log\OpenWithProgids"; ValueType: string; ValueName: "{#ProgId}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\{#MdProgId}"; ValueType: string; ValueData: "Markdown 文档"; Flags: uninsdeletekey; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\{#MdProgId}\DefaultIcon"; ValueType: string; ValueData: """{app}\{#AppExe}"",0"; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\{#MdProgId}\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\.md\OpenWithProgids"; ValueType: string; ValueName: "{#MdProgId}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
-Root: HKA; Subkey: "Software\Classes\.markdown\OpenWithProgids"; ValueType: string; ValueName: "{#MdProgId}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{#AppName}"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExe}"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".txt"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".log"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".md"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".markdown"; ValueData: ""
+; 文件类型：.txt、.md 右键“打开方式”中出现本程序；默认打开程序只由用户在系统对话框中确认
+Root: HKA; Subkey: "Software\Classes\{#ProgId}"; ValueType: string; ValueData: "文本文档"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\{#ProgId}\DefaultIcon"; ValueType: string; ValueData: """{app}\{#AppExe}"",0"
+Root: HKA; Subkey: "Software\Classes\{#ProgId}\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExe}"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\.txt\OpenWithProgids"; ValueType: string; ValueName: "{#ProgId}"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.log\OpenWithProgids"; ValueType: string; ValueName: "{#ProgId}"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\{#MdProgId}"; ValueType: string; ValueData: "Markdown 文档"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\{#MdProgId}\DefaultIcon"; ValueType: string; ValueData: """{app}\{#AppExe}"",0"
+Root: HKA; Subkey: "Software\Classes\{#MdProgId}\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExe}"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\.md\OpenWithProgids"; ValueType: string; ValueName: "{#MdProgId}"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.markdown\OpenWithProgids"; ValueType: string; ValueName: "{#MdProgId}"; ValueData: ""; Flags: uninsdeletevalue
+; 默认应用功能：本程序出现在“设置 > 应用 > 默认应用”中
+Root: HKA; Subkey: "Software\SuixinNotepad"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\SuixinNotepad\Capabilities"; ValueType: string; ValueName: "ApplicationName"; ValueData: "{#AppName}"
+Root: HKA; Subkey: "Software\SuixinNotepad\Capabilities"; ValueType: string; ValueName: "ApplicationDescription"; ValueData: "多标签纯文本编辑器"
+Root: HKA; Subkey: "Software\SuixinNotepad\Capabilities\FileAssociations"; ValueType: string; ValueName: ".txt"; ValueData: "{#ProgId}"
+Root: HKA; Subkey: "Software\SuixinNotepad\Capabilities\FileAssociations"; ValueType: string; ValueName: ".log"; ValueData: "{#ProgId}"
+Root: HKA; Subkey: "Software\SuixinNotepad\Capabilities\FileAssociations"; ValueType: string; ValueName: ".md"; ValueData: "{#MdProgId}"
+Root: HKA; Subkey: "Software\SuixinNotepad\Capabilities\FileAssociations"; ValueType: string; ValueName: ".markdown"; ValueData: "{#MdProgId}"
+Root: HKA; Subkey: "Software\RegisteredApplications"; ValueType: string; ValueName: "SuixinNotepad"; ValueData: "Software\SuixinNotepad\Capabilities"; Flags: uninsdeletevalue
 
 [Run]
+; 勾选“设为默认程序”时弹出系统的打开方式对话框，由用户确认；已是默认程序时程序直接退出。静默更新时不弹出
+Filename: "{app}\{#AppExe}"; Parameters: "--choose-default-txt"; Tasks: defaulttxt; Flags: waituntilterminated; Check: not WizardSilent
 ; 静默更新时同样会执行，程序因此在更新后自动重新打开
 Filename: "{app}\{#AppExe}"; Description: "运行{#AppName}"; Flags: nowait postinstall
 

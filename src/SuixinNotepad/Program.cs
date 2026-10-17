@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -16,6 +17,21 @@ namespace SuixinNotepad
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
+
+            // 安装包请求设为 .txt 默认程序：只弹出系统对话框，不打开窗口
+            if (args.Length == 1 && args[0] == DefaultApp.ChooseArgument)
+            {
+                if (DefaultApp.IsCurrent()) return;
+                try
+                {
+                    DefaultApp.Choose(IntPtr.Zero);
+                }
+                catch (COMException ex)
+                {
+                    MessageBox.Show("无法打开默认程序设置：" + ex.Message, MainForm.AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+                return;
+            }
 
             // 相对路径按本进程的当前目录解析后再交给已运行的实例
             string[] files = args.Where(a => !string.IsNullOrWhiteSpace(a)).Select(Path.GetFullPath).ToArray();

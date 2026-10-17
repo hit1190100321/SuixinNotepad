@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using SuixinNotepad.Core;
 
@@ -18,6 +19,7 @@ namespace SuixinNotepad.UI
             Margin = Dpi.Scale(new Padding(20, 3, 0, 3)),
         };
         private readonly TextBox updateSource = new TextBox { Width = Dpi.Scale(340), Anchor = AnchorStyles.Left | AnchorStyles.Right };
+        private readonly TextBox txtDefault = new TextBox { ReadOnly = true, Width = Dpi.Scale(340), Anchor = AnchorStyles.Left | AnchorStyles.Right };
 
         public SettingsDialog(AppSettings settings, string backupRoot)
         {
@@ -49,12 +51,17 @@ namespace SuixinNotepad.UI
             table.Controls.Add(updateSource, 1, 4);
             table.SetColumnSpan(updateSource, 2);
 
+            var changeDefault = MakeButton("更改...");
+            table.Controls.Add(MakeLabel("打开 .txt 文件:"), 0, 5);
+            table.Controls.Add(txtDefault, 1, 5);
+            table.Controls.Add(changeDefault, 2, 5);
+
             var ok = MakeButton("确定");
             var cancel = MakeButton("取消", DialogResult.Cancel);
             var buttons = MakeButtonRow();
             buttons.Controls.Add(cancel);
             buttons.Controls.Add(ok);
-            table.Controls.Add(buttons, 0, 5);
+            table.Controls.Add(buttons, 0, 6);
             table.SetColumnSpan(buttons, 3);
             Controls.Add(table);
 
@@ -66,6 +73,7 @@ namespace SuixinNotepad.UI
             autoCleanup.Checked = settings.AutoCleanup;
             updateSource.Text = settings.UpdateSource;
             SyncCleanup();
+            ShowTxtDefault();
 
             autoBackup.CheckedChanged += (s, e) => SyncCleanup();
             browse.Click += (s, e) => BrowseFolder();
@@ -74,7 +82,24 @@ namespace SuixinNotepad.UI
                 Directory.CreateDirectory(backupRoot);
                 Process.Start("explorer.exe", "\"" + backupRoot + "\"");
             };
+            changeDefault.Click += (s, e) => ChooseTxtDefault();
             ok.Click += (s, e) => Confirm();
+        }
+
+        private void ShowTxtDefault() => txtDefault.Text = DefaultApp.CurrentName() ?? "未设置";
+
+        /// <summary>默认程序只能由用户在系统对话框中确认，对话框关闭后重新读取实际结果。</summary>
+        private void ChooseTxtDefault()
+        {
+            try
+            {
+                DefaultApp.Choose(Handle);
+            }
+            catch (COMException ex)
+            {
+                MessageBox.Show(this, "无法打开默认程序设置：" + ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            ShowTxtDefault();
         }
 
         /// <summary>关闭自动备份时，自动清理随之失效。</summary>
