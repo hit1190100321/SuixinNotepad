@@ -15,6 +15,7 @@
 #define AppName "随心记事本"
 #define AppExe "SuixinNotepad.exe"
 #define ProgId "SuixinNotepad.txt"
+#define MdProgId "SuixinNotepad.md"
 
 [Setup]
 AppId={{677BD9FD-E826-42D4-95E5-D7E391CEAADF}
@@ -46,7 +47,7 @@ Name: "chs"; MessagesFile: "ChineseSimplified.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; Flags: unchecked
-Name: "openwith"; Description: "加入 .txt 文件的“打开方式”列表"
+Name: "openwith"; Description: "加入 .txt、.md 文件的“打开方式”列表"
 
 [Files]
 Source: "{#SourceDir}\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
@@ -62,12 +63,19 @@ Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}"; ValueType: string;
 Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: openwith
 Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".txt"; ValueData: ""; Tasks: openwith
 Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".log"; ValueData: ""; Tasks: openwith
-; 文件类型：.txt 右键“打开方式”中出现本程序，但不抢占默认打开程序
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".md"; ValueData: ""; Tasks: openwith
+Root: HKA; Subkey: "Software\Classes\Applications\{#AppExe}\SupportedTypes"; ValueType: string; ValueName: ".markdown"; ValueData: ""; Tasks: openwith
+; 文件类型：.txt、.md 右键“打开方式”中出现本程序，但不抢占默认打开程序
 Root: HKA; Subkey: "Software\Classes\{#ProgId}"; ValueType: string; ValueData: "文本文档"; Flags: uninsdeletekey; Tasks: openwith
 Root: HKA; Subkey: "Software\Classes\{#ProgId}\DefaultIcon"; ValueType: string; ValueData: """{app}\{#AppExe}"",0"; Tasks: openwith
 Root: HKA; Subkey: "Software\Classes\{#ProgId}\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: openwith
 Root: HKA; Subkey: "Software\Classes\.txt\OpenWithProgids"; ValueType: string; ValueName: "{#ProgId}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
 Root: HKA; Subkey: "Software\Classes\.log\OpenWithProgids"; ValueType: string; ValueName: "{#ProgId}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
+Root: HKA; Subkey: "Software\Classes\{#MdProgId}"; ValueType: string; ValueData: "Markdown 文档"; Flags: uninsdeletekey; Tasks: openwith
+Root: HKA; Subkey: "Software\Classes\{#MdProgId}\DefaultIcon"; ValueType: string; ValueData: """{app}\{#AppExe}"",0"; Tasks: openwith
+Root: HKA; Subkey: "Software\Classes\{#MdProgId}\shell\open\command"; ValueType: string; ValueData: """{app}\{#AppExe}"" ""%1"""; Tasks: openwith
+Root: HKA; Subkey: "Software\Classes\.md\OpenWithProgids"; ValueType: string; ValueName: "{#MdProgId}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
+Root: HKA; Subkey: "Software\Classes\.markdown\OpenWithProgids"; ValueType: string; ValueName: "{#MdProgId}"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
 
 [Run]
 ; 静默更新时同样会执行，程序因此在更新后自动重新打开

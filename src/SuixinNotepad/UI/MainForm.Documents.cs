@@ -20,6 +20,15 @@ namespace SuixinNotepad.UI
     {
         #region 创建与打开
 
+        private const string OpenFilter = "文本文件 (*.txt;*.md)|*.txt;*.md;*.markdown;*.log|所有文件 (*.*)|*.*";
+        private const string SaveFilter = "文本文档 (*.txt)|*.txt|Markdown 文档 (*.md)|*.md|所有文件 (*.*)|*.*";
+
+        private static bool IsMarkdown(string fileName)
+        {
+            string ext = Path.GetExtension(fileName);
+            return ext.Equals(".md", StringComparison.OrdinalIgnoreCase) || ext.Equals(".markdown", StringComparison.OrdinalIgnoreCase);
+        }
+
         private void RestoreSession(SessionState session)
         {
             foreach (SessionTab tab in session.Tabs)
@@ -88,7 +97,7 @@ namespace SuixinNotepad.UI
         {
             using (var dialog = new OpenFileDialog
             {
-                Filter = "文本文档 (*.txt)|*.txt|所有文件 (*.*)|*.*",
+                Filter = OpenFilter,
                 Multiselect = true,
                 Title = "打开",
             })
@@ -406,15 +415,19 @@ namespace SuixinNotepad.UI
             NoteDocument? doc = active;
             if (doc == null) return;
 
+            // 文件类型默认跟随当前文件：Markdown 文件另存时仍是 Markdown
+            string fileName = doc.Untitled ? SafeFileName(doc.Title) + ".txt" : doc.FileName;
+            bool markdown = IsMarkdown(fileName);
             string target;
             using (var dialog = new SaveFileDialog
             {
-                Filter = "文本文档 (*.txt)|*.txt|所有文件 (*.*)|*.*",
-                DefaultExt = "txt",
+                Filter = SaveFilter,
+                FilterIndex = markdown ? 2 : 1,
+                DefaultExt = markdown ? "md" : "txt",
                 AddExtension = true,
                 OverwritePrompt = true,
                 Title = "另存为",
-                FileName = doc.Untitled ? SafeFileName(doc.Title) + ".txt" : doc.FileName,
+                FileName = fileName,
                 InitialDirectory = doc.Untitled ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) : Path.GetDirectoryName(doc.Path),
             })
             {
