@@ -28,7 +28,7 @@ dotnet test tests\SuixinNotepad.Tests                      # 只跑测试
   - `FilePath`：`Normalize`（完整路径并展开 8.3 短文件名）、`SameFile`（按卷序列号和文件编号判断同一文件）、`ResolveLinks`。查找已打开的文档一律用 `SameFile`，不要比较路径字符串。
   - `BackupStore`：存档。每个文件一个目录，目录名为“文件名_完整路径 SHA256 前 16 位”，目录内 `source.txt` 记录原路径；存档文件名是保存时间。`Create` 遇到与最新存档相同的内容返回 false。`Cleanup` 按一年、50 份清理，`keep` 指定的存档（正在恢复的那份）不删。`MoveHistory` 用于另存为和重命名。
   - `AppSettings` / `SessionState`：设置和会话，存于 `%LOCALAPPDATA%\SuixinNotepad`（经 `Environment.GetFolderPath` 取得，设置 `LOCALAPPDATA` 环境变量不能改变它，手工测试会用到真实数据）。新增字段的默认值写在 `[OnDeserializing]` 方法里，旧文件缺字段时才能拿到正确默认值；`[OnDeserialized]` 校验字段，null、空字体名、无效字号等抛 `SerializationException`，由 `JsonFile.LoadOrDefault` 按损坏处理（改名留档、用默认内容）。读文件本身出错（被占用、无权限）时 `Program` 提示后退出，不用默认内容覆盖。
-  - `UpdateService`：读取 `latest.json`（https 网址或文件夹），比较版本，下载并校验 SHA-256。SHA-256 与安装包同源，所以不接受 http；文件夹清单中的安装包只能是同一文件夹中的文件名；四段版本号视为无效。所有失败都包装成 `UpdateException`，消息可直接展示。`ValidateSource` 供设置对话框校验地址。
+  - `UpdateService`：读取 `latest.json`（https 网址或文件夹），比较版本，下载并校验 SHA-256。SHA-256 与安装包同源，所以不接受 http；文件夹清单中的安装包只能是同一文件夹中的文件名；四段版本号视为无效。所有失败都包装成 `UpdateException`，消息可直接展示。`ValidateSource` 供设置对话框校验地址。默认更新地址 `AppSettings.DefaultUpdateSource` 指向 GitHub 最新发布的下载目录（`releases/latest/download/`），每个发布都要同时上传安装包和 `latest.json`；GitHub 的跳转由 `WebClient` 自动跟随，自动检查失败时不提示。
   - `DefaultApp`：.txt 默认打开程序。Windows 不允许程序直接改默认程序，只能用 `SHOpenWithDialog` 弹出系统对话框由用户确认；对话框关闭时总返回成功，结果用 `AssocQueryString` 重新查询。安装包用 `--choose-default-txt` 参数调用它。
   - `SingleInstance`：互斥体加命名管道，第二个进程把文件路径转交给已运行的窗口。监听线程上的回调不能抛异常。`Program` 取得单实例后立即开始监听，`FileRelay` 在窗口 `Load` 之前把收到的文件存起来，窗口关闭后丢弃。
 - `UI/`：

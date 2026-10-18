@@ -68,6 +68,9 @@ namespace SuixinNotepad.Core
         public const string DefaultFontName = "Consolas";
         public const float DefaultFontSize = 11f;
 
+        /// <summary>默认更新地址：GitHub 上最新发布版本的下载目录，其中有 latest.json 和安装包。</summary>
+        public const string DefaultUpdateSource = "https://github.com/hit1190100321/SuixinNotepad/releases/latest/download/";
+
         /// <summary>反序列化不调用构造函数，旧版本设置文件缺少的字段由此获得默认值。</summary>
         private void SetDefaults()
         {
@@ -84,7 +87,7 @@ namespace SuixinNotepad.Core
             WindowHeight = 0;
             WindowX = int.MinValue;
             WindowY = int.MinValue;
-            UpdateSource = "";
+            UpdateSource = DefaultUpdateSource;
             FindText = "";
             ReplaceText = "";
             FindWrapAround = true;
