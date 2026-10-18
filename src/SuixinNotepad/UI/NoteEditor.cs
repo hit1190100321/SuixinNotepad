@@ -274,6 +274,21 @@ namespace SuixinNotepad.UI
         }
 
         /// <summary>
+        /// 选区长度，与控件下标一致。RichTextBox 的实现会取出选中文字（EM_STREAMOUT），
+        /// RichEdit 处理这个消息时会强制结束输入法组字，把还没选字的拼音直接写进正文，
+        /// 所以这里用 EM_EXGETSEL 只取选区位置。
+        /// </summary>
+        public override int SelectionLength
+        {
+            get
+            {
+                var range = new CHARRANGE();
+                SendMessage(Handle, EM_EXGETSEL, IntPtr.Zero, ref range);
+                return range.cpMax - range.cpMin;
+            }
+        }
+
+        /// <summary>
         /// 光标所在的逻辑行与列（从 1 开始，不受自动换行影响）。
         /// 有选区时光标在选区的活动端：从右往左选时在开头，否则在末尾。
         /// </summary>
@@ -417,6 +432,7 @@ namespace SuixinNotepad.UI
         private const int EC_LEFTMARGIN = 1;
         private const int EC_RIGHTMARGIN = 2;
         private const int EM_EMPTYUNDOBUFFER = 0x00CD;
+        private const int EM_EXGETSEL = WM_USER + 52;
         private const int EM_SETTARGETDEVICE = WM_USER + 72;
         private const int EM_SETUNDOLIMIT = WM_USER + 82;
         private const int EM_SETTEXTMODE = WM_USER + 89;
@@ -474,6 +490,16 @@ namespace SuixinNotepad.UI
 
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, ref CHARFORMAT2 lParam);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CHARRANGE
+        {
+            public int cpMin;
+            public int cpMax;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, ref CHARRANGE lParam);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct GETTEXTLENGTHEX

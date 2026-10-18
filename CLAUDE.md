@@ -34,6 +34,7 @@ dotnet test tests\SuixinNotepad.Tests                      # 只跑测试
 - `UI/`：
   - `NoteEditor`：继承 RichTextBox，窗口类换成 RICHEDIT50W 纯文本模式。对外文本统一用 `\n` 换行，下标与控件一致；读写文本一律用 `GetText`/`SetText`/`ReplaceSelection`，不要用 `Text` 属性。富文本格式快捷键在 `ProcessCmdKey` 中屏蔽。中文字形通过字体关联处理：所选字体自带中文字形时跟随所选字体，否则用微软雅黑。
   - `NoteEditor` 取文本：全文用 `EM_GETTEXTEX` 的 `GT_RAWTEXT`，范围和光标行列用 TOM（`EM_GETOLEINTERFACE` 取得 ITextDocument，经 `dynamic` 调用）。`GT_DEFAULT` 和 `EM_GETTEXTRANGE` 会把 U+FFFD 换成空格，不能用。光标在选区的活动端，行号是逻辑行，不受自动换行影响。
+- `NoteEditor` 与输入法：RichEdit 收到 `EM_STREAMOUT` 时会强制结束组字，把未选字的拼音写进正文。RichTextBox 的 `SelectionLength`、`SelectedText`、`Text`、`Rtf` 都走 `EM_STREAMOUT`，所以 `SelectionLength` 已改写为 `EM_EXGETSEL`；`SelectedText`、`Text`、`Rtf` 不要使用。定时器（自动保存、状态栏）在组字过程中也会触发，新增的定时操作要用真实输入法确认不会打断组字。
   - 控件写入时会改写 U+0007、U+2028、U+2029、U+FFF9–U+FFFC、U+FFFE、U+FFFF（见 `Unsupported`），`CanHold` 判断文本能否原样保存。垂直制表符和 U+FFFD 能原样保存。粘贴统一走 `PastePlainText`（Ctrl+V、Shift+Insert、`WM_PASTE`、菜单），把 U+2028/U+2029 换成换行；Shift+Enter 插入普通换行。
   - `MainForm.cs`（窗口、菜单、状态栏、快捷键）、`MainForm.Documents.cs`（标签页、载入、自动保存、手动保存与存档、另存为、关闭、会话）、`MainForm.Commands.cs`（编辑、查找、格式、查看、更新命令）。
   - `TabStrip`：自绘标签栏。点击只发出 `TabClicked`，选中哪个标签由 `MainForm` 设置 `SelectedIndex` 决定，所以激活失败时高亮不会跑到别的标签上。弹出提示框可能吞掉 MouseUp，拖动状态在下一次按下和增删标签时清掉。`Dpi`：系统级 DPI 感知下的尺寸换算，界面上所有像素尺寸都要经过 `Dpi.Scale`。
