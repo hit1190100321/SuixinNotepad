@@ -59,3 +59,4 @@ dotnet test tests\SuixinNotepad.Tests                      # 只跑测试
 - 注释、界面文字、提交说明都用中文。界面只放用户操作需要的文字，不加解释性小字。
 - `build.ps1` 和 `.iss` 含中文，必须保存为带 BOM 的 UTF-8（Windows PowerShell 5.1 和 ISCC 需要）。
 - 修改代码后提交到本地 git，中文提交说明，不 push。
+- 项目以 MIT 许可证开源，远程仓库为 https://github.com/hit1190100321/SuixinNotepad（`origin`），只在用户要求时推送。

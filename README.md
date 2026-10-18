@@ -104,3 +104,7 @@ tests/SuixinNotepad.Tests/   xunit 测试
 installer/     Inno Setup 脚本和简体中文语言文件
 build.ps1      构建脚本
 ```
+
+## 许可证
+
+[MIT](LICENSE)。`installer/ChineseSimplified.isl` 是 Inno Setup 简体中文语言文件，来自 [kira-96/Inno-Setup-Chinese-Simplified-Translation](https://github.com/kira-96/Inno-Setup-Chinese-Simplified-Translation)，保留原作者信息。
