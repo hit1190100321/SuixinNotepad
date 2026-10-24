@@ -19,6 +19,7 @@ namespace SuixinNotepad.UI
 
         private readonly AppPaths paths;
         private readonly AppSettings settings;
+        private readonly TabHistory history;
         private readonly BackupStore backups;
         private readonly List<NoteDocument> docs = new List<NoteDocument>();
         private readonly TabStrip tabStrip = new TabStrip { Dock = DockStyle.Top };
@@ -45,6 +46,7 @@ namespace SuixinNotepad.UI
         private int tabMenuIndex = -1;
         private FindReplaceDialog? findDialog;
         private string lastSessionJson = "";
+        private string lastHistoryJson = "";
         private UpdateInfo? pendingUpdate;
         private bool suppressTextEvents;
         private bool askingExternalChange;
@@ -55,10 +57,11 @@ namespace SuixinNotepad.UI
         private ToolStripMenuItem wordWrapItem = null!;
         private ToolStripMenuItem statusBarItem = null!;
 
-        public MainForm(AppPaths paths, AppSettings settings, SessionState session, string[] startupFiles)
+        public MainForm(AppPaths paths, AppSettings settings, SessionState session, TabHistory history, string[] startupFiles)
         {
             this.paths = paths;
             this.settings = settings;
+            this.history = history;
             settings.ZoomPercent = Math.Max(NoteEditor.MinZoom, Math.Min(NoteEditor.MaxZoom, settings.ZoomPercent));
             backups = new BackupStore(paths.BackupRoot);
             editorFont = CreateEditorFont(settings);
@@ -117,6 +120,7 @@ namespace SuixinNotepad.UI
             int preferred = RestoreSession(session);
             OpenFiles(startupFiles);
             if (active == null) ActivateNearest(preferred);
+            TrimTabs(null);
         }
 
         private static ToolStripStatusLabel StatusCell(int width) => new ToolStripStatusLabel
@@ -169,6 +173,7 @@ namespace SuixinNotepad.UI
             {
                 Item("新建标签页(&T)", (s, e) => NewTab(), Keys.Control | Keys.N),
                 Item("打开(&O)...", (s, e) => OpenWithDialog(), Keys.Control | Keys.O),
+                Item("标签页历史(&B)...", (s, e) => ShowTabHistory(), Keys.Control | Keys.Shift | Keys.O),
                 Item("保存(&S)", (s, e) => ManualSave(), Keys.Control | Keys.S),
                 Item("另存为(&A)...", (s, e) => SaveAs(), Keys.Control | Keys.Shift | Keys.S),
                 Item("全部保存(&L)", (s, e) => SaveAll(), Keys.Control | Keys.Alt | Keys.S),

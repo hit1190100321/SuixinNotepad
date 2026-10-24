@@ -17,25 +17,34 @@ namespace SuixinNotepad.UI
 
     /// <summary>
     /// 一个标签页对应的记事本。每个记事本始终有一个确定的文件路径：
-    /// 用户指定的位置，或默认文件夹中由程序命名的文件（Untitled）。
+    /// 用户指定的位置，或默认文件夹中由程序命名的文件（见 NoteKind）。
     /// 编辑器在第一次激活时才创建并读入文件。
     /// </summary>
     internal sealed class NoteDocument
     {
-        public const string UntitledTitle = "无标题";
         private const int TitleMaxLength = 30;
 
-        public NoteDocument(string path, bool untitled)
+        public NoteDocument(string path, NoteKind kind)
         {
             Path = FilePath.Normalize(path);
-            Untitled = untitled;
-            Title = untitled ? UntitledTitle : System.IO.Path.GetFileName(Path);
+            Kind = kind;
+            Title = kind == NoteKind.Draft ? NoteNaming.UntitledStem : System.IO.Path.GetFileName(Path);
         }
 
         public string Path { get; set; }
 
-        /// <summary>用户未指定位置：文件位于默认文件夹，名称由程序生成，标题取自正文首行。</summary>
-        public bool Untitled { get; set; }
+        public NoteKind Kind { get; set; }
+
+        public bool IsDraft => Kind == NoteKind.Draft;
+
+        /// <summary>
+        /// 用户没有指定位置、由程序管理的笔记（草稿和默认文件夹中已命名的笔记）：
+        /// 另存为时移到新位置，内容为空时关闭标签页会删除文件。
+        /// </summary>
+        public bool Managed => Kind != NoteKind.File;
+
+        /// <summary>最近一次查看的时间（本地时间），标签页过多时先关闭最久没有查看的。</summary>
+        public DateTime LastViewed { get; set; }
 
         public TextEncoding Encoding { get; set; } = TextFile.DefaultEncoding;
         public LineEnding LineEnding { get; set; } = TextFile.DefaultLineEnding;
@@ -76,7 +85,7 @@ namespace SuixinNotepad.UI
         public bool RefreshTitle()
         {
             string title;
-            if (!Untitled)
+            if (!IsDraft)
             {
                 title = FileName;
             }
@@ -86,15 +95,10 @@ namespace SuixinNotepad.UI
             }
             else
             {
-                title = UntitledTitle;
-                string head = Editor.GetTextRange(0, Math.Min(Editor.TextLength, 400));
-                foreach (string line in head.Split('\n'))
-                {
-                    string trimmed = line.Trim();
-                    if (trimmed.Length == 0) continue;
-                    title = trimmed.Length > TitleMaxLength ? trimmed.Substring(0, TitleMaxLength) + "…" : trimmed;
-                    break;
-                }
+                string? line = NoteNaming.FirstLine(Editor.GetTextRange(0, Math.Min(Editor.TextLength, 400)));
+                title = line == null ? NoteNaming.UntitledStem
+                    : line.Length > TitleMaxLength ? line.Substring(0, TitleMaxLength) + "…"
+                    : line;
             }
 
             if (title == Title) return false;
@@ -105,7 +109,7 @@ namespace SuixinNotepad.UI
         /// <summary>会话恢复时使用上次记录的标题，编辑器载入后再按正文刷新。</summary>
         public void RestoreTitle(string title)
         {
-            if (Untitled && title.Length > 0) Title = title;
+            if (IsDraft && title.Length > 0) Title = title;
         }
     }
 }

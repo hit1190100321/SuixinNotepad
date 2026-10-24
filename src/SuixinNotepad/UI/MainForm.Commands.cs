@@ -241,7 +241,7 @@ namespace SuixinNotepad.UI
             zoomLabel.Text = settings.ZoomPercent + "%";
             lineEndingButton.Text = TextFile.DisplayName(doc.LineEnding);
             encodingButton.Text = doc.Lossy ? doc.Encoding.Name + "（只读）" : doc.Encoding.Name;
-            if (doc.Untitled && doc.RefreshTitle()) UpdateTab(doc);
+            if (doc.IsDraft && doc.RefreshTitle()) UpdateTab(doc);
         }
 
         /// <summary>改变保存时使用的编码，内容不变。文本中有该编码无法表示的字符时拒绝。</summary>
@@ -319,7 +319,7 @@ namespace SuixinNotepad.UI
         private void Print()
         {
             if (active?.Editor == null) return;
-            printer.Print(this, active.Editor.GetText(), editorFont, active.Untitled ? active.Title : active.FileName);
+            printer.Print(this, active.Editor.GetText(), editorFont, active.Title);
         }
 
         private void OpenContainingFolder(NoteDocument? doc)

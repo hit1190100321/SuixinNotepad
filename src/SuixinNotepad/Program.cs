@@ -53,12 +53,14 @@ namespace SuixinNotepad
                 AppPaths paths = AppPaths.ForCurrentUser();
                 AppSettings settings;
                 SessionState session;
-                string? brokenSettings, brokenSession;
+                TabHistory history;
+                string? brokenSettings, brokenSession, brokenHistory;
                 try
                 {
                     Directory.CreateDirectory(paths.DataRoot);
                     settings = JsonFile.LoadOrDefault(paths.SettingsFile, () => new AppSettings(), out brokenSettings);
                     session = JsonFile.LoadOrDefault(paths.SessionFile, () => new SessionState(), out brokenSession);
+                    history = JsonFile.LoadOrDefault(paths.HistoryFile, () => new TabHistory(), out brokenHistory);
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                 {
@@ -72,13 +74,13 @@ namespace SuixinNotepad
                 Application.ThreadException += (s, e) => ReportCrash(paths, e.Exception);
                 AppDomain.CurrentDomain.UnhandledException += (s, e) => ReportCrash(paths, (Exception)e.ExceptionObject);
 
-                using (var form = new MainForm(paths, settings, session, files))
+                using (var form = new MainForm(paths, settings, session, history, files))
                 {
                     form.Load += (s, e) => relay.Attach(form);
                     form.FormClosed += (s, e) => relay.Detach();
                     form.Shown += (s, e) =>
                     {
-                        foreach (string? broken in new[] { brokenSettings, brokenSession })
+                        foreach (string? broken in new[] { brokenSettings, brokenSession, brokenHistory })
                         {
                             if (broken != null)
                                 MessageBox.Show(form, "配置文件已损坏，已改用默认内容。原文件保留为：\r\n" + broken, MainForm.AppName,

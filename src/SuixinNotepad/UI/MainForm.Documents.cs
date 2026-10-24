@@ -52,10 +52,13 @@ namespace SuixinNotepad.UI
                 }
                 if (FindDocument(path) != null) continue;
 
-                var doc = new NoteDocument(path, tab.Untitled)
+                var doc = new NoteDocument(path, tab.Kind ?? throw new InvalidOperationException("会话中的标签页缺少类型。"))
                 {
                     PendingSelectionStart = tab.SelectionStart,
                     PendingSelectionLength = tab.SelectionLength,
+                    // 旧版本会话没有记录查看时间，用文件的修改时间代替
+                    LastViewed = tab.LastViewed != DateTime.MinValue ? tab.LastViewed
+                        : File.Exists(path) ? File.GetLastWriteTime(path) : DateTime.MinValue,
                 };
                 doc.RestoreTitle(tab.Title);
                 TextEncoding? forced = TextEncoding.FromName(tab.Encoding);
@@ -80,15 +83,47 @@ namespace SuixinNotepad.UI
 
         private int InsertIndex => active == null ? docs.Count : docs.IndexOf(active) + 1;
 
+        /// <summary>同时保留的标签页上限。超出时关闭最久没有查看的标签页，可在标签页历史中找回。</summary>
+        private const int MaxTabs = 30;
+
         private void NewTab()
         {
-            var doc = new NoteDocument(NewUntitledPath(), true);
+            var doc = new NoteDocument(NewDraftPath(), NoteKind.Draft);
             AddDocument(doc, InsertIndex);
-            ActivateDocument(doc, closeOnFailure: true);
+            if (ActivateDocument(doc, closeOnFailure: true)) TrimTabs(doc);
         }
 
-        private string NewUntitledPath() =>
-            UniqueNotePath("无标题-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture), ".txt");
+        /// <summary>
+        /// 标签页超过 MaxTabs 时，按查看时间从早到晚关闭标签页，当前标签页和 keep 除外。
+        /// 写不回文件的标签页不关闭，以免丢失内容。
+        /// </summary>
+        private void TrimTabs(NoteDocument? keep)
+        {
+            if (docs.Count <= MaxTabs) return;
+            NoteDocument[] candidates = docs
+                .Select((doc, index) => new { doc, index })
+                .Where(x => x.doc != active && x.doc != keep)
+                .OrderBy(x => x.doc.LastViewed).ThenBy(x => x.index)
+                .Select(x => x.doc)
+                .ToArray();
+            var closed = new List<string>();
+            foreach (NoteDocument doc in candidates)
+            {
+                if (docs.Count <= MaxTabs) break;
+                if (doc.Dirty && WriteDocument(doc) == null) continue;
+                closed.Add(doc.Title);
+                RetireDocument(doc);
+                RemoveDocument(doc, activateNext: false);
+            }
+            if (closed.Count == 0) return;
+            ShowMessage(closed.Count == 1
+                ? "已关闭最久未查看的标签页“" + closed[0] + "”"
+                : "已关闭 " + closed.Count + " 个最久未查看的标签页");
+            SaveSession();
+        }
+
+        private string NewDraftPath() =>
+            UniqueNotePath(NoteNaming.UntitledStem + "-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture), ".txt");
 
         /// <summary>默认文件夹中的新文件路径，与已有文件和已打开的标签都不冲突。</summary>
         private string UniqueNotePath(string stem, string extension)
@@ -108,7 +143,7 @@ namespace SuixinNotepad.UI
                 Title = "打开",
             })
             {
-                if (active != null && !active.Untitled) dialog.InitialDirectory = Path.GetDirectoryName(active.Path);
+                if (active != null && !active.Managed) dialog.InitialDirectory = Path.GetDirectoryName(active.Path);
                 if (dialog.ShowDialog(this) == DialogResult.OK) OpenFiles(dialog.FileNames);
             }
         }
@@ -153,14 +188,63 @@ namespace SuixinNotepad.UI
                     }
                 }
 
-                var doc = new NoteDocument(path, false);
+                var doc = new NoteDocument(path, NoteKind.File);
                 AddDocument(doc, InsertIndex);
                 if (!ActivateDocument(doc, closeOnFailure: true)) continue;
+                TrimTabs(doc);
                 if (doc.Lossy)
                     MessageBox.Show(this, LossyMessage(doc), AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 else
                     ApplyLogStamp(doc);
             }
+        }
+
+        /// <summary>按查看时间列出标签页历史，打开选中的一项。</summary>
+        private void ShowTabHistory()
+        {
+            // 已打开的标签页也列在时间轴上，当前标签页的查看时间记为现在
+            if (active != null) MarkViewed(active);
+            foreach (NoteDocument doc in docs) RememberInHistory(doc);
+            SaveSession();
+
+            TabHistoryEntry? entry;
+            using (var dialog = new TabHistoryDialog(history, path => FindDocument(path) != null))
+            {
+                DialogResult result = dialog.ShowDialog(this);
+                if (dialog.HistoryChanged) SaveSession();
+                if (result != DialogResult.OK) return;
+                entry = dialog.Selected;
+            }
+            if (entry != null) OpenFromHistory(entry);
+        }
+
+        /// <summary>打开标签页历史中的一项：已打开时切换过去，否则按记录的类型重新建立标签页。</summary>
+        private void OpenFromHistory(TabHistoryEntry entry)
+        {
+            NoteDocument? existing = FindDocument(entry.Path);
+            if (existing != null)
+            {
+                ActivateDocument(existing);
+                return;
+            }
+            if (!File.Exists(entry.Path))
+            {
+                var answer = MessageBox.Show(this, "找不到文件“" + entry.Path + "”。\r\n\r\n是否从标签页历史中移除？", AppName,
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+                if (answer == DialogResult.Yes)
+                {
+                    history.Remove(entry.Path);
+                    SaveSession();
+                }
+                return;
+            }
+
+            var doc = new NoteDocument(entry.Path, entry.Kind);
+            doc.RestoreTitle(entry.Title);
+            AddDocument(doc, InsertIndex);
+            if (!ActivateDocument(doc, closeOnFailure: true)) return;
+            TrimTabs(doc);
+            if (doc.Lossy) MessageBox.Show(this, LossyMessage(doc), AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
         private static string ReadOnlyHint(NoteDocument doc) =>
@@ -231,8 +315,13 @@ namespace SuixinNotepad.UI
             }
 
             NoteEditor editor = doc.Editor!;
-            if (active?.Editor != null) active.Editor.Visible = false;
+            if (active != null)
+            {
+                MarkViewed(active);
+                if (active.Editor != null) active.Editor.Visible = false;
+            }
             active = doc;
+            MarkViewed(doc);
             ApplyViewSettings(editor);
             editor.Visible = true;
             tabStrip.SelectedIndex = docs.IndexOf(doc);
@@ -270,7 +359,7 @@ namespace SuixinNotepad.UI
                 stamp = FileStamp.Of(doc.Path);
                 content = TextFile.Load(doc.Path, doc.EncodingForced ? doc.Encoding : null);
             }
-            else if (!doc.Untitled)
+            else if (!doc.IsDraft)
             {
                 throw new FileNotFoundException("找不到文件。", doc.Path);
             }
@@ -349,6 +438,74 @@ namespace SuixinNotepad.UI
             doc.Dirty = true;
             RestartTimer(autosaveTimer);
             if (doc == active) RestartTimer(statusTimer);
+            if (doc.IsDraft && !doc.Lossy) AutoName(doc);
+        }
+
+        /// <summary>
+        /// 草稿的第一个非空行写完（其后出现换行）时，把文件改名为这一行的内容，之后不再随正文改名。
+        /// 改名失败时仍是草稿，下一次编辑再试。文件被其他程序改过时先交给写回流程处理。
+        /// </summary>
+        private void AutoName(NoteDocument doc)
+        {
+            string? line = NoteNaming.CompletedFirstLine(doc.Editor!.GetText());
+            if (line == null) return;
+
+            string oldPath = doc.Path;
+            FileStamp? onDisk = FileStamp.Of(oldPath);
+            if (onDisk != null && !onDisk.Equals(doc.DiskStamp)) return;
+            string target = UniqueNotePath(NoteNaming.ToFileStem(line), ".txt");
+            try
+            {
+                if (onDisk != null) File.Move(oldPath, target);
+            }
+            catch (Exception ex) when (IsFileError(ex))
+            {
+                ShowMessage("无法自动命名“" + doc.Title + "”：" + ex.Message);
+                return;
+            }
+
+            doc.Path = target;
+            doc.Kind = NoteKind.Named;
+            if (onDisk != null) doc.DiskStamp = FileStamp.Of(target);
+            AfterMove(doc, oldPath);
+            // 立即写出，保证会话中记录的文件存在
+            WriteDocument(doc);
+        }
+
+        /// <summary>文件已移到 doc.Path 之后：迁移存档历史和标签页历史，刷新标签并保存会话。</summary>
+        private void AfterMove(NoteDocument doc, string oldPath)
+        {
+            doc.RefreshTitle();
+            history.Move(oldPath, doc.Path, doc.Title, doc.Kind);
+            UpdateTab(doc);
+            if (doc == active) UpdateStatus();
+            SaveSession();
+            try
+            {
+                backups.MoveHistory(oldPath, doc.Path);
+            }
+            catch (Exception ex) when (IsFileError(ex))
+            {
+                MessageBox.Show(this, "文件已改名为“" + doc.FileName + "”，但迁移存档历史时出错：" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        /// <summary>记下用户正在查看（或刚离开）这个标签页。</summary>
+        private void MarkViewed(NoteDocument doc)
+        {
+            doc.LastViewed = DateTime.Now;
+            RememberInHistory(doc);
+        }
+
+        /// <summary>把标签页按它最近一次的查看时间记入标签页历史。空白的草稿没有可找回的内容，不记入。</summary>
+        private void RememberInHistory(NoteDocument doc)
+        {
+            if (doc.LastViewed == DateTime.MinValue) return;
+            bool emptyDraft = doc.IsDraft && (doc.Editor != null ? doc.Editor.TextLength == 0 : !File.Exists(doc.Path));
+            if (emptyDraft)
+                history.Remove(doc.Path);
+            else
+                history.Record(doc.Path, doc.Title, doc.Kind, doc.LastViewed);
         }
 
         private static void RestartTimer(Timer timer)
@@ -405,7 +562,7 @@ namespace SuixinNotepad.UI
             }
             // 文件被短暂锁住（杀毒软件、同步盘）时稍后重试，不等用户下一次编辑
             if (SaveAllDirty().Count > 0) retryTimer.Start();
-            if (active != null && active.Untitled && active.RefreshTitle()) UpdateTab(active);
+            if (active != null && active.IsDraft && active.RefreshTitle()) UpdateTab(active);
             SaveSession();
         }
 
@@ -440,7 +597,7 @@ namespace SuixinNotepad.UI
             }
 
             string text = editor.GetText();
-            if (!force && doc.Untitled && text.Length == 0 && onDisk == null)
+            if (!force && doc.IsDraft && text.Length == 0 && onDisk == null)
             {
                 doc.Dirty = false;
                 return new byte[0];
@@ -461,7 +618,7 @@ namespace SuixinNotepad.UI
 
             try
             {
-                if (doc.Untitled) Directory.CreateDirectory(Path.GetDirectoryName(doc.Path)!);
+                if (doc.Managed) Directory.CreateDirectory(Path.GetDirectoryName(doc.Path)!);
                 TextFile.WriteAtomic(doc.Path, bytes);
             }
             catch (Exception ex) when (IsFileError(ex))
@@ -568,7 +725,7 @@ namespace SuixinNotepad.UI
             if (doc == null) return;
 
             // 文件类型默认跟随当前文件：Markdown 文件另存时仍是 Markdown
-            string fileName = doc.Untitled ? SafeFileName(doc.Title) + ".txt" : doc.FileName;
+            string fileName = doc.IsDraft ? SuggestedFileName(doc) : doc.FileName;
             bool markdown = IsMarkdown(fileName);
             string target;
             using (var dialog = new SaveFileDialog
@@ -580,7 +737,7 @@ namespace SuixinNotepad.UI
                 OverwritePrompt = true,
                 Title = "另存为",
                 FileName = fileName,
-                InitialDirectory = doc.Untitled ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) : Path.GetDirectoryName(doc.Path),
+                InitialDirectory = doc.Managed ? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments) : Path.GetDirectoryName(doc.Path),
             })
             {
                 if (dialog.ShowDialog(this) != DialogResult.OK) return;
@@ -599,11 +756,11 @@ namespace SuixinNotepad.UI
             }
 
             string oldPath = doc.Path;
-            bool wasUntitled = doc.Untitled;
+            NoteKind oldKind = doc.Kind;
             LossReason oldReason = doc.LossReason;
             FileStamp? oldStamp = doc.DiskStamp;
             doc.Path = target;
-            doc.Untitled = false;
+            doc.Kind = NoteKind.File;
             doc.LossReason = LossReason.None;
             // 用户已在对话框中确认覆盖目标文件，不再当作外部修改
             doc.DiskStamp = FileStamp.Of(target);
@@ -612,7 +769,7 @@ namespace SuixinNotepad.UI
             {
                 string error = doc.SaveError ?? "";
                 doc.Path = oldPath;
-                doc.Untitled = wasUntitled;
+                doc.Kind = oldKind;
                 doc.LossReason = oldReason;
                 doc.DiskStamp = oldStamp;
                 doc.SaveError = null;
@@ -621,33 +778,37 @@ namespace SuixinNotepad.UI
                 return;
             }
 
-            // 未指定位置的记事本被移到用户指定的位置：原文件删除，存档历史随之迁移
-            if (wasUntitled)
+            doc.Editor!.ReadOnly = false;
+            if (oldKind != NoteKind.File)
             {
+                // 程序管理的笔记移到用户指定的位置：原文件删除，存档历史和标签页历史随之迁移
+                AfterMove(doc, oldPath);
                 try
                 {
-                    backups.MoveHistory(oldPath, target);
                     if (File.Exists(oldPath)) File.Delete(oldPath);
                 }
                 catch (Exception ex) when (IsFileError(ex))
                 {
-                    MessageBox.Show(this, "已另存为“" + target + "”，但整理原文件时出错：" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    MessageBox.Show(this, "已另存为“" + target + "”，但删除原文件时出错：" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 }
             }
-
-            doc.Editor!.ReadOnly = false;
+            else
+            {
+                // 用户自己的文件另存为后原文件保留，新文件另记一条历史
+                doc.RefreshTitle();
+                MarkViewed(doc);
+                UpdateTab(doc);
+                UpdateStatus();
+                SaveSession();
+            }
             ReportArchive(doc, bytes);
-            doc.RefreshTitle();
-            UpdateTab(doc);
-            if (doc == active) UpdateStatus();
-            SaveSession();
         }
 
         private void Rename(NoteDocument? doc)
         {
             if (doc == null) return;
             string dir = Path.GetDirectoryName(doc.Path)!;
-            string current = doc.Untitled ? SafeFileName(doc.Title) + ".txt" : doc.FileName;
+            string current = doc.IsDraft ? SuggestedFileName(doc) : doc.FileName;
 
             string? name = InputDialog.Ask(this, "重命名", "新文件名:", current, "确定", input =>
             {
@@ -690,33 +851,16 @@ namespace SuixinNotepad.UI
                 return;
             }
 
-            // 文件已经在新位置，之后无论存档能否迁移，都必须写到新位置，否则旧文件会被重新写出来
+            // 文件已经在新位置，之后无论存档能否迁移，都必须写到新位置，否则旧文件会被重新写出来。
+            // 重命名不改变位置：默认文件夹中的笔记仍由程序管理，名称不再自动改变
             doc.Path = target;
-            doc.Untitled = false;
+            if (doc.IsDraft) doc.Kind = NoteKind.Named;
             doc.DiskStamp = FileStamp.Of(target);
-            doc.RefreshTitle();
-            UpdateTab(doc);
-            SaveSession();
-
-            try
-            {
-                backups.MoveHistory(oldPath, target);
-            }
-            catch (Exception ex) when (IsFileError(ex))
-            {
-                MessageBox.Show(this, "文件已重命名，但迁移存档历史时出错：" + ex.Message, AppName, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
+            AfterMove(doc, oldPath);
         }
 
-        private static string SafeFileName(string title)
-        {
-            var sb = new StringBuilder();
-            char[] invalid = Path.GetInvalidFileNameChars();
-            foreach (char c in title.TrimEnd('…'))
-                sb.Append(Array.IndexOf(invalid, c) >= 0 ? '_' : c);
-            string name = sb.ToString().Trim().TrimEnd('.');
-            return name.Length == 0 ? NoteDocument.UntitledTitle : name;
-        }
+        /// <summary>草稿另存为、重命名时建议的文件名：由标签上的首行生成。</summary>
+        private static string SuggestedFileName(NoteDocument doc) => NoteNaming.ToFileStem(doc.Title.TrimEnd('…')) + ".txt";
 
         #endregion
 
@@ -733,7 +877,8 @@ namespace SuixinNotepad.UI
                 if (answer != DialogResult.Yes) return;
             }
             if (!docs.Contains(doc)) return;
-            DeleteIfEmptyUntitled(doc);
+            if (doc == active) MarkViewed(doc);
+            RetireDocument(doc);
             RemoveDocument(doc);
             SaveSession();
         }
@@ -762,9 +907,10 @@ namespace SuixinNotepad.UI
                 if (answer != DialogResult.Yes) return;
             }
 
+            if (active != null) MarkViewed(active);
             foreach (NoteDocument doc in docs.ToArray())
             {
-                DeleteIfEmptyUntitled(doc);
+                RetireDocument(doc);
                 RemoveDocument(doc, activateNext: false);
             }
             NewTab();
@@ -791,19 +937,28 @@ namespace SuixinNotepad.UI
             else UpdateWindowTitle();
         }
 
-        /// <summary>空白的未命名记事本在关闭时删除其文件，避免默认文件夹里堆积空文件。</summary>
-        private static void DeleteIfEmptyUntitled(NoteDocument doc)
+        /// <summary>
+        /// 标签页关闭前调用（内容已写回）。程序管理的空白笔记删除文件并移出标签页历史，
+        /// 避免默认文件夹里堆积空文件；其余标签页记入标签页历史，以便找回。
+        /// </summary>
+        private void RetireDocument(NoteDocument doc)
         {
-            if (!doc.Untitled || !File.Exists(doc.Path)) return;
-            bool empty = doc.Editor != null ? doc.Editor.TextLength == 0 : new FileInfo(doc.Path).Length == 0;
-            if (!empty) return;
+            bool exists = File.Exists(doc.Path);
+            bool empty = doc.Editor != null ? doc.Editor.TextLength == 0 : !exists || new FileInfo(doc.Path).Length == 0;
+            if (!doc.Managed || !empty)
+            {
+                RememberInHistory(doc);
+                return;
+            }
             try
             {
-                File.Delete(doc.Path);
+                if (exists) File.Delete(doc.Path);
+                history.Remove(doc.Path);
             }
             catch (Exception ex) when (IsFileError(ex))
             {
                 Trace.WriteLine("删除空白记事本失败：" + ex.Message);
+                RememberInHistory(doc);
             }
         }
 
@@ -821,11 +976,11 @@ namespace SuixinNotepad.UI
             foreach (NoteDocument doc in SaveAllDirty())
             {
                 string original = doc.Path;
-                bool wasUntitled = doc.Untitled;
+                NoteKind oldKind = doc.Kind;
                 FileStamp? oldStamp = doc.DiskStamp;
                 doc.Path = UniqueNotePath("恢复-" + DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "-" +
                     Path.GetFileNameWithoutExtension(original), Path.GetExtension(original));
-                doc.Untitled = true;
+                doc.Kind = NoteKind.Named;
                 doc.DiskStamp = null;
                 if (WriteDocument(doc, force: true) != null)
                 {
@@ -836,11 +991,13 @@ namespace SuixinNotepad.UI
                 else
                 {
                     doc.Path = original;
-                    doc.Untitled = wasUntitled;
+                    doc.Kind = oldKind;
                     doc.DiskStamp = oldStamp;
                     lost.Add(original);
                 }
             }
+            if (active != null) MarkViewed(active);
+            foreach (NoteDocument doc in docs) RememberInHistory(doc);
 
             string rescuedText = rescued.Count == 0 ? "" :
                 "以下文件无法保存到原位置，内容已另存：\r\n" + string.Join("\r\n", rescued) + "\r\n\r\n";
@@ -1065,6 +1222,7 @@ namespace SuixinNotepad.UI
 
         #region 会话与设置
 
+        /// <summary>保存标签页列表，同时保存标签页历史。内容没有变化时不写文件。</summary>
         private void SaveSession()
         {
             var state = new SessionState { ActiveIndex = active == null ? 0 : Math.Max(0, docs.IndexOf(active)) };
@@ -1073,9 +1231,10 @@ namespace SuixinNotepad.UI
                 var tab = new SessionTab
                 {
                     Path = doc.Path,
-                    Untitled = doc.Untitled,
+                    Kind = doc.Kind,
                     Title = doc.Title,
                     Encoding = doc.EncodingForced ? doc.Encoding.Name : "",
+                    LastViewed = doc.LastViewed,
                 };
                 if (doc.Editor != null)
                 {
@@ -1090,18 +1249,23 @@ namespace SuixinNotepad.UI
                 state.Tabs.Add(tab);
             }
 
-            byte[] json = JsonFile.Serialize(state);
+            WriteIfChanged(paths.SessionFile, JsonFile.Serialize(state), ref lastSessionJson, "无法保存标签页记录：");
+            WriteIfChanged(paths.HistoryFile, JsonFile.Serialize(history), ref lastHistoryJson, "无法保存标签页历史：");
+        }
+
+        private void WriteIfChanged(string path, byte[] json, ref string last, string errorPrefix)
+        {
             string text = Encoding.UTF8.GetString(json);
-            if (text == lastSessionJson) return;
+            if (text == last) return;
             try
             {
                 Directory.CreateDirectory(paths.DataRoot);
-                TextFile.WriteAtomic(paths.SessionFile, json);
-                lastSessionJson = text;
+                TextFile.WriteAtomic(path, json);
+                last = text;
             }
             catch (Exception ex) when (IsFileError(ex))
             {
-                ShowMessage("无法保存标签页记录：" + ex.Message);
+                ShowMessage(errorPrefix + ex.Message);
             }
         }
 

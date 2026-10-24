@@ -11,7 +11,7 @@ namespace SuixinNotepad.Core
             DataRoot = dataRoot;
         }
 
-        /// <summary>%LOCALAPPDATA%\SuixinNotepad：设置、会话、备份。卸载程序时保留。</summary>
+        /// <summary>%LOCALAPPDATA%\SuixinNotepad：设置、会话、标签页历史、备份。卸载程序时保留。</summary>
         public static AppPaths ForCurrentUser() =>
             new AppPaths(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "SuixinNotepad"));
 
@@ -22,6 +22,7 @@ namespace SuixinNotepad.Core
         public string DataRoot { get; }
         public string SettingsFile => Path.Combine(DataRoot, "settings.json");
         public string SessionFile => Path.Combine(DataRoot, "session.json");
+        public string HistoryFile => Path.Combine(DataRoot, "history.json");
         public string BackupRoot => Path.Combine(DataRoot, "Backups");
         public string UpdateDownloadDir => Path.Combine(Path.GetTempPath(), "SuixinNotepad-Update");
     }
