@@ -1,7 +1,7 @@
 ﻿<Project>
   <PropertyGroup>
     <!-- 版本号唯一来源：程序集版本、安装包版本、更新清单都从这里读取 -->
-    <Version>1.1.0</Version>
+    <Version>1.1.1</Version>
     <Product>随心记事本</Product>
     <Company>随心记事本</Company>
     <Copyright>Copyright © 2026</Copyright>
