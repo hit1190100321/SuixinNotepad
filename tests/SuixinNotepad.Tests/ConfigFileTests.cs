@@ -44,6 +44,17 @@ namespace SuixinNotepad.Tests
         }
 
         [Fact]
+        public void 账号改名前的更新地址换成新地址()
+        {
+            AppSettings settings = Parse<AppSettings>("{\"UpdateSource\":\"" + AppSettings.FormerUpdateSource + "\"}");
+            Assert.Equal(AppSettings.DefaultUpdateSource, settings.UpdateSource);
+
+            // 用户自己填写的地址和留空都保持不变
+            Assert.Equal("https://example.com/suixin/", Parse<AppSettings>("{\"UpdateSource\":\"https://example.com/suixin/\"}").UpdateSource);
+            Assert.Equal("", Parse<AppSettings>("{\"UpdateSource\":\"\"}").UpdateSource);
+        }
+
+        [Fact]
         public void 损坏的文件改名留档后使用默认内容()
         {
             using (var temp = new TempDir())

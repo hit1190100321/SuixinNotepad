@@ -60,6 +60,7 @@ namespace SuixinNotepad.Core
                 throw new SerializationException("设置文件中缺少默认保存位置或字体。");
             if (float.IsNaN(FontSize) || FontSize <= 0 || FontSize > MaxFontSize)
                 throw new SerializationException("设置文件中的字号无效：" + FontSize);
+            if (string.Equals(UpdateSource, FormerUpdateSource, StringComparison.OrdinalIgnoreCase)) UpdateSource = DefaultUpdateSource;
         }
 
         /// <summary>GDI+ 字体允许的最大字号（磅）。</summary>
@@ -69,7 +70,10 @@ namespace SuixinNotepad.Core
         public const float DefaultFontSize = 11f;
 
         /// <summary>默认更新地址：GitHub 上最新发布版本的下载目录，其中有 latest.json 和安装包。</summary>
-        public const string DefaultUpdateSource = "https://github.com/hit1190100321/SuixinNotepad/releases/latest/download/";
+        public const string DefaultUpdateSource = "https://github.com/loding-258/SuixinNotepad/releases/latest/download/";
+
+        /// <summary>GitHub 账号改名前的默认更新地址。1.0.0 把它写进了设置文件，读入时换成新地址。</summary>
+        public const string FormerUpdateSource = "https://github.com/hit1190100321/SuixinNotepad/releases/latest/download/";
 
         /// <summary>反序列化不调用构造函数，旧版本设置文件缺少的字段由此获得默认值。</summary>
         private void SetDefaults()

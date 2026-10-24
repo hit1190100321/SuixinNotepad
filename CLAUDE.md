@@ -30,7 +30,7 @@ dotnet test tests\SuixinNotepad.Tests                      # 只跑测试
   - `NoteNaming`：`NoteKind` 表示标签页文件的来历：`Draft`（默认文件夹中的“无标题-时间”临时文件，标签显示首行）、`Named`（默认文件夹中已命名的笔记：自动命名、在默认文件夹中重命名、退出时的恢复文件）、`File`（用户打开或指定位置的文件）。`Draft` 和 `Named` 合称程序管理的笔记（`NoteDocument.Managed`）。`CompletedFirstLine` 判断第一个非空行是否已写完，`ToFileStem` 把它变成可用的文件名（非法字符换下划线、截到 50 字且不拆代理对、避开 CON 等设备名）。
   - `TabHistory`：标签页历史，存于 `history.json`。每个文件一条，按查看时间从新到旧，最多 500 条。路径都已经过 `FilePath.Normalize`，按不区分大小写的字符串比较（不用 `SameFile`，避免逐条访问磁盘）。`Move` 用于文件改名后让记录跟随新路径。
   - `AppSettings` / `SessionState`：设置和会话，存于 `%LOCALAPPDATA%\SuixinNotepad`（经 `Environment.GetFolderPath` 取得，设置 `LOCALAPPDATA` 环境变量不能改变它，手工测试会用到真实数据）。新增字段的默认值写在 `[OnDeserializing]` 方法里，旧文件缺字段时才能拿到正确默认值；会话中的 `Kind` 取代旧版本的 `Untitled`：旧文件只有 `Untitled` 时由它推出 `Kind`，新文件不再写出 `Untitled`。`[OnDeserialized]` 校验字段，null、空字体名、无效字号等抛 `SerializationException`，由 `JsonFile.LoadOrDefault` 按损坏处理（改名留档、用默认内容）。读文件本身出错（被占用、无权限）时 `Program` 提示后退出，不用默认内容覆盖。
-  - `UpdateService`：读取 `latest.json`（https 网址或文件夹），比较版本，下载并校验 SHA-256。SHA-256 与安装包同源，所以不接受 http；文件夹清单中的安装包只能是同一文件夹中的文件名；四段版本号视为无效。所有失败都包装成 `UpdateException`，消息可直接展示。`ValidateSource` 供设置对话框校验地址。默认更新地址 `AppSettings.DefaultUpdateSource` 指向 GitHub 最新发布的下载目录（`releases/latest/download/`），每个发布都要同时上传安装包和 `latest.json`；GitHub 的跳转由 `WebClient` 自动跟随，自动检查失败时不提示。
+  - `UpdateService`：读取 `latest.json`（https 网址或文件夹），比较版本，下载并校验 SHA-256。SHA-256 与安装包同源，所以不接受 http；文件夹清单中的安装包只能是同一文件夹中的文件名；四段版本号视为无效。所有失败都包装成 `UpdateException`，消息可直接展示。`ValidateSource` 供设置对话框校验地址。默认更新地址 `AppSettings.DefaultUpdateSource` 指向 GitHub 最新发布的下载目录（`releases/latest/download/`），每个发布都要同时上传安装包和 `latest.json`。GitHub 账号由 hit1190100321 改名为 loding-258，设置文件中保存的旧地址（`FormerUpdateSource`）读入时换成新地址；GitHub 的跳转由 `WebClient` 自动跟随，自动检查失败时不提示。
   - `DefaultApp`：.txt 默认打开程序。Windows 不允许程序直接改默认程序，只能用 `SHOpenWithDialog` 弹出系统对话框由用户确认；对话框关闭时总返回成功，结果用 `AssocQueryString` 重新查询。安装包用 `--choose-default-txt` 参数调用它。
   - `SingleInstance`：互斥体加命名管道，第二个进程把文件路径转交给已运行的窗口。监听线程上的回调不能抛异常。`Program` 取得单实例后立即开始监听，`FileRelay` 在窗口 `Load` 之前把收到的文件存起来，窗口关闭后丢弃。
 - `UI/`：
@@ -65,4 +65,4 @@ dotnet test tests\SuixinNotepad.Tests                      # 只跑测试
 - 注释、界面文字、提交说明都用中文。界面只放用户操作需要的文字，不加解释性小字。
 - `build.ps1` 和 `.iss` 含中文，必须保存为带 BOM 的 UTF-8（Windows PowerShell 5.1 和 ISCC 需要）。
 - 修改代码后提交到本地 git，中文提交说明，不 push。提交说明不加 `Co-Authored-By` 等署名行，GitHub 贡献者中只保留项目作者。
-- 项目以 MIT 许可证开源，远程仓库为 https://github.com/hit1190100321/SuixinNotepad（`origin`），只在用户要求时推送。
+- 项目以 MIT 许可证开源，远程仓库为 https://github.com/loding-258/SuixinNotepad（`origin` 仍记着改名前的地址，经 GitHub 跳转），只在用户要求时推送。

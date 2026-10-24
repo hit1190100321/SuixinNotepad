@@ -4,7 +4,7 @@
 
 ## 下载安装
 
-在 [Releases](https://github.com/hit1190100321/SuixinNotepad/releases/latest) 页面下载 `SuixinNotepad-Setup-<版本>.exe` 并运行。支持 Windows 10 和 11。
+在 [Releases](https://github.com/loding-258/SuixinNotepad/releases/latest) 页面下载 `SuixinNotepad-Setup-<版本>.exe` 并运行。支持 Windows 10 和 11。
 
 ## 功能
 
@@ -96,7 +96,7 @@
 
 ## 发布与更新
 
-默认更新地址是 `https://github.com/hit1190100321/SuixinNotepad/releases/latest/download/`，即 GitHub 上最新发布版本的附件。发布新版本的步骤：
+默认更新地址是 `https://github.com/loding-258/SuixinNotepad/releases/latest/download/`，即 GitHub 上最新发布版本的附件。发布新版本的步骤：
 
 1. 修改 `Directory.Build.props` 里的 `<Version>`。程序版本、安装包版本和更新清单都从这里读取。
 2. 运行 `.\build.ps1`。
