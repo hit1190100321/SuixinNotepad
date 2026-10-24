@@ -18,7 +18,7 @@ namespace SuixinNotepad.UI
             AutoSize = true,
             Margin = Dpi.Scale(new Padding(20, 3, 0, 3)),
         };
-        private readonly TextBox updateSource = new TextBox { Width = Dpi.Scale(340), Anchor = AnchorStyles.Left | AnchorStyles.Right };
+        private readonly CheckBox autoCheckUpdates = new CheckBox { Text = "自动检查更新", AutoSize = true, Margin = Dpi.Scale(new Padding(0, 6, 0, 3)) };
         private readonly TextBox txtDefault = new TextBox { ReadOnly = true, Width = Dpi.Scale(340), Anchor = AnchorStyles.Left | AnchorStyles.Right };
 
         public SettingsDialog(AppSettings settings, string backupRoot)
@@ -47,9 +47,8 @@ namespace SuixinNotepad.UI
             table.Controls.Add(backupPath, 1, 3);
             table.Controls.Add(openBackups, 2, 3);
 
-            table.Controls.Add(MakeLabel("更新地址:"), 0, 4);
-            table.Controls.Add(updateSource, 1, 4);
-            table.SetColumnSpan(updateSource, 2);
+            table.Controls.Add(autoCheckUpdates, 0, 4);
+            table.SetColumnSpan(autoCheckUpdates, 3);
 
             var changeDefault = MakeButton("更改...");
             table.Controls.Add(MakeLabel("打开 .txt 文件:"), 0, 5);
@@ -71,7 +70,7 @@ namespace SuixinNotepad.UI
             notesFolder.Text = settings.NotesFolder;
             autoBackup.Checked = settings.AutoBackup;
             autoCleanup.Checked = settings.AutoCleanup;
-            updateSource.Text = settings.UpdateSource;
+            autoCheckUpdates.Checked = settings.AutoCheckUpdates;
             SyncCleanup();
             ShowTxtDefault();
 
@@ -139,18 +138,10 @@ namespace SuixinNotepad.UI
                 return;
             }
 
-            string? invalidSource = UpdateService.ValidateSource(updateSource.Text);
-            if (invalidSource != null)
-            {
-                MessageBox.Show(this, invalidSource, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                updateSource.Focus();
-                return;
-            }
-
             settings.NotesFolder = folder;
             settings.AutoBackup = autoBackup.Checked;
             settings.AutoCleanup = autoCleanup.Checked;
-            settings.UpdateSource = updateSource.Text.Trim();
+            settings.AutoCheckUpdates = autoCheckUpdates.Checked;
             DialogResult = DialogResult.OK;
         }
     }

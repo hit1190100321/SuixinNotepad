@@ -36,9 +36,14 @@ namespace SuixinNotepad.Core
         [DataMember] public int WindowHeight { get; set; }
         [DataMember] public bool WindowMaximized { get; set; }
 
-        /// <summary>更新地址：网址或文件夹路径，其中需有 latest.json。</summary>
+        /// <summary>启动时每 24 小时检查一次更新。</summary>
+        [DataMember] public bool AutoCheckUpdates { get; set; }
+
+        /// <summary>自行架设的更新地址（网址或文件夹路径，其中需有 latest.json）；为空时使用 GitHub 上的发布。界面中不显示，只能改设置文件。</summary>
         [DataMember] public string UpdateSource { get; set; } = "";
         [DataMember] public DateTime LastUpdateCheck { get; set; }
+
+        public string EffectiveUpdateSource => UpdateSource.Length > 0 ? UpdateSource : DefaultUpdateSource;
 
         [DataMember] public string FindText { get; set; } = "";
         [DataMember] public string ReplaceText { get; set; } = "";
@@ -60,7 +65,10 @@ namespace SuixinNotepad.Core
                 throw new SerializationException("设置文件中缺少默认保存位置或字体。");
             if (float.IsNaN(FontSize) || FontSize <= 0 || FontSize > MaxFontSize)
                 throw new SerializationException("设置文件中的字号无效：" + FontSize);
-            if (string.Equals(UpdateSource, FormerUpdateSource, StringComparison.OrdinalIgnoreCase)) UpdateSource = DefaultUpdateSource;
+            // 以前的版本把 GitHub 地址写进了设置文件；清空后跟随程序内置的地址，仓库改名时不必再迁移
+            if (string.Equals(UpdateSource, FormerUpdateSource, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(UpdateSource, DefaultUpdateSource, StringComparison.OrdinalIgnoreCase))
+                UpdateSource = "";
         }
 
         /// <summary>GDI+ 字体允许的最大字号（磅）。</summary>
@@ -72,7 +80,7 @@ namespace SuixinNotepad.Core
         /// <summary>默认更新地址：GitHub 上最新发布版本的下载目录，其中有 latest.json 和安装包。</summary>
         public const string DefaultUpdateSource = "https://github.com/loding-258/SuixinNotepad/releases/latest/download/";
 
-        /// <summary>GitHub 账号改名前的默认更新地址。1.0.0 把它写进了设置文件，读入时换成新地址。</summary>
+        /// <summary>GitHub 账号改名前的默认更新地址。1.0.0 把它写进了设置文件，读入时清空。</summary>
         public const string FormerUpdateSource = "https://github.com/hit1190100321/SuixinNotepad/releases/latest/download/";
 
         /// <summary>反序列化不调用构造函数，旧版本设置文件缺少的字段由此获得默认值。</summary>
@@ -91,7 +99,8 @@ namespace SuixinNotepad.Core
             WindowHeight = 0;
             WindowX = int.MinValue;
             WindowY = int.MinValue;
-            UpdateSource = DefaultUpdateSource;
+            AutoCheckUpdates = true;
+            UpdateSource = "";
             FindText = "";
             ReplaceText = "";
             FindWrapAround = true;

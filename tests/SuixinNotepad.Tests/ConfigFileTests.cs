@@ -44,14 +44,30 @@ namespace SuixinNotepad.Tests
         }
 
         [Fact]
-        public void 账号改名前的更新地址换成新地址()
+        public void 更新地址留空时使用GitHub且默认自动检查()
         {
-            AppSettings settings = Parse<AppSettings>("{\"UpdateSource\":\"" + AppSettings.FormerUpdateSource + "\"}");
-            Assert.Equal(AppSettings.DefaultUpdateSource, settings.UpdateSource);
+            // 早期版本把空地址（不检查更新）写进了设置文件
+            AppSettings empty = Parse<AppSettings>("{\"UpdateSource\":\"\"}");
+            Assert.True(empty.AutoCheckUpdates);
+            Assert.Equal(AppSettings.DefaultUpdateSource, empty.EffectiveUpdateSource);
+        }
 
-            // 用户自己填写的地址和留空都保持不变
-            Assert.Equal("https://example.com/suixin/", Parse<AppSettings>("{\"UpdateSource\":\"https://example.com/suixin/\"}").UpdateSource);
-            Assert.Equal("", Parse<AppSettings>("{\"UpdateSource\":\"\"}").UpdateSource);
+        [Theory]
+        [InlineData(AppSettings.FormerUpdateSource)]
+        [InlineData(AppSettings.DefaultUpdateSource)]
+        public void 写进设置文件的GitHub地址清空后跟随内置地址(string saved)
+        {
+            AppSettings settings = Parse<AppSettings>("{\"UpdateSource\":\"" + saved + "\"}");
+            Assert.Equal("", settings.UpdateSource);
+            Assert.Equal(AppSettings.DefaultUpdateSource, settings.EffectiveUpdateSource);
+        }
+
+        [Fact]
+        public void 自行架设的更新地址保持不变()
+        {
+            AppSettings settings = Parse<AppSettings>("{\"UpdateSource\":\"https://example.com/suixin/\",\"AutoCheckUpdates\":false}");
+            Assert.Equal("https://example.com/suixin/", settings.EffectiveUpdateSource);
+            Assert.False(settings.AutoCheckUpdates);
         }
 
         [Fact]

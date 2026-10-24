@@ -346,15 +346,7 @@ namespace SuixinNotepad.UI
         /// <summary>检查更新。手动检查时直接询问是否安装；启动时的自动检查只在状态栏给出提示。</summary>
         private async void CheckForUpdates(bool manual)
         {
-            string source = settings.UpdateSource;
-            if (source.Length == 0)
-            {
-                if (!manual) return;
-                MessageBox.Show(this, "请先在“设置”中填写更新地址。", AppName, MessageBoxButtons.OK, MessageBoxIcon.Information);
-                ShowSettings();
-                return;
-            }
-
+            string source = settings.EffectiveUpdateSource;
             UpdateInfo? info;
             try
             {

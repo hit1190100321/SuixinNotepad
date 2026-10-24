@@ -462,7 +462,7 @@ namespace SuixinNotepad.UI
         {
             base.OnShown(e);
             Editor?.Focus();
-            if (settings.UpdateSource.Length > 0 && (DateTime.Now - settings.LastUpdateCheck).TotalHours >= 24)
+            if (settings.AutoCheckUpdates && (DateTime.Now - settings.LastUpdateCheck).TotalHours >= 24)
                 CheckForUpdates(false);
         }
 
