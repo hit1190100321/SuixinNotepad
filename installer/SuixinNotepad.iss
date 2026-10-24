@@ -16,6 +16,8 @@
 #define AppExe "SuixinNotepad.exe"
 #define ProgId "SuixinNotepad.txt"
 #define MdProgId "SuixinNotepad.md"
+; 与 Core/SingleInstance.cs 中的 MutexName 一致
+#define AppMutexName "SuixinNotepad.Running"
 
 [Setup]
 AppId={{677BD9FD-E826-42D4-95E5-D7E391CEAADF}
@@ -93,6 +95,46 @@ Filename: "{app}\{#AppExe}"; Parameters: "--choose-default-txt"; Tasks: defaultt
 Filename: "{app}\{#AppExe}"; Description: "运行{#AppName}"; Flags: nowait postinstall
 
 [Code]
+const
+  GENERIC_WRITE = $40000000;
+  OPEN_EXISTING = 3;
+  INVALID_HANDLE_VALUE = -1;
+
+function CreateFile(lpFileName: String; dwDesiredAccess, dwShareMode, lpSecurityAttributes, dwCreationDisposition,
+  dwFlagsAndAttributes, hTemplateFile: Integer): Integer; external 'CreateFileW@kernel32.dll stdcall';
+function CloseHandle(hObject: Integer): Boolean; external 'CloseHandle@kernel32.dll stdcall';
+
+{ 程序文件仍被某个进程占用（程序还在运行或正在退出）时不能独占打开 }
+function AppExeInUse(): Boolean;
+var
+  Path: String;
+  Handle: Integer;
+begin
+  Result := False;
+  Path := ExpandConstant('{app}\{#AppExe}');
+  if not FileExists(Path) then Exit;
+  Handle := CreateFile(Path, GENERIC_WRITE, 0, 0, OPEN_EXISTING, 0, 0);
+  if Handle = INVALID_HANDLE_VALUE then
+    Result := True
+  else
+    CloseHandle(Handle);
+end;
+
+{ 程序内更新时，旧程序启动安装程序后才退出，复制文件前等它完全退出（最多 30 秒）。
+  手动安装时不等待，正在运行的程序由“自动关闭应用程序”处理 }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  I: Integer;
+begin
+  Result := '';
+  if not WizardSilent then Exit;
+  for I := 1 to 120 do
+  begin
+    if not CheckForMutexes('{#AppMutexName}') and not AppExeInUse() then Exit;
+    Sleep(250);
+  end;
+end;
+
 function InitializeSetup(): Boolean;
 begin
   Result := IsDotNetInstalled(net48, 0);
